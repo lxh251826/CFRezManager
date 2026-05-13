@@ -15,6 +15,19 @@ public enum ExplorerItemKind
 public sealed class ExplorerItem
 {
     private static readonly ImageSource? FolderIconImage = LoadFolderIcon();
+    private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "png",
+        "jpg",
+        "jpeg",
+        "bmp",
+        "gif",
+        "tif",
+        "tiff"
+    };
+
+    private bool _thumbnailLoadAttempted;
+    private ImageSource? _thumbnailSource;
 
     public required string Name { get; init; }
     public required ExplorerItemKind Kind { get; init; }
@@ -30,6 +43,24 @@ public sealed class ExplorerItem
     public bool IsContainer => Kind is ExplorerItemKind.Directory or ExplorerItemKind.RezArchive or ExplorerItemKind.RezDirectory;
 
     public ImageSource? IconSource => IsContainer ? FolderIconImage : null;
+
+    public bool HasThumbnail
+    {
+        get
+        {
+            EnsureThumbnailLoaded();
+            return _thumbnailSource is not null;
+        }
+    }
+
+    public ImageSource? ThumbnailSource
+    {
+        get
+        {
+            EnsureThumbnailLoaded();
+            return _thumbnailSource;
+        }
+    }
 
     public long? SizeBytes
     {
@@ -158,6 +189,64 @@ public sealed class ExplorerItem
         }
 
         return hasSize ? total : null;
+    }
+
+    private void EnsureThumbnailLoaded()
+    {
+        if (_thumbnailLoadAttempted)
+        {
+            return;
+        }
+
+        _thumbnailLoadAttempted = true;
+        if (!CanLoadThumbnail())
+        {
+            return;
+        }
+
+        _thumbnailSource = LoadRezThumbnail();
+    }
+
+    private bool CanLoadThumbnail()
+    {
+        return Kind == ExplorerItemKind.RezFile &&
+               Archive is not null &&
+               ArchiveFile is not null &&
+               ThumbnailExtensions.Contains(ArchiveFile.Extension);
+    }
+
+    private ImageSource? LoadRezThumbnail()
+    {
+        try
+        {
+            if (Archive is null || ArchiveFile is null || ArchiveFile.Size <= 0)
+            {
+                return null;
+            }
+
+            byte[] data = new byte[ArchiveFile.Size];
+            using (FileStream source = File.OpenRead(Archive.FilePath))
+            {
+                source.Position = ArchiveFile.DataOffset;
+                source.ReadExactly(data);
+            }
+
+            using var stream = new MemoryStream(data);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            image.DecodePixelWidth = 192;
+            image.DecodePixelHeight = 192;
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static long? SumRezNodeSizes(RezDirectoryNode? directory)

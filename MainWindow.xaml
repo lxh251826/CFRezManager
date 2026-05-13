@@ -88,6 +88,21 @@
                             BorderThickness="0,0,1,1"/>
                 </Grid>
 
+                <Border x:Name="ThumbnailFrame"
+                        Width="{Binding TileIconSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                        Height="{Binding TileIconSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                        Background="#FFFFFF"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1"
+                        CornerRadius="3"
+                        Padding="2"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                    <Image Source="{Binding ThumbnailSource}"
+                           Stretch="Uniform"/>
+                </Border>
+
                 <TextBlock Grid.Row="1"
                            Text="{Binding Name}"
                            TextAlignment="Center"
@@ -101,6 +116,10 @@
                 <DataTrigger Binding="{Binding IsContainer}" Value="False">
                     <Setter TargetName="FolderIcon" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="FileIcon" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasThumbnail}" Value="True">
+                    <Setter TargetName="FileIcon" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="ThumbnailFrame" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -140,6 +159,21 @@
                                VerticalAlignment="Center"/>
                 </Grid>
 
+                <Border x:Name="ListThumbnailFrame"
+                        Width="28"
+                        Height="28"
+                        Background="#FFFFFF"
+                        BorderBrush="#CBD5E1"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        Padding="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="Collapsed">
+                    <Image Source="{Binding ThumbnailSource}"
+                           Stretch="Uniform"/>
+                </Border>
+
                 <TextBlock Grid.Column="1"
                            Text="{Binding Name}"
                            TextTrimming="CharacterEllipsis"
@@ -165,6 +199,10 @@
                 <DataTrigger Binding="{Binding IsContainer}" Value="False">
                     <Setter TargetName="ListFolderIcon" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="ListFileIcon" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasThumbnail}" Value="True">
+                    <Setter TargetName="ListFileIcon" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="ListThumbnailFrame" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
