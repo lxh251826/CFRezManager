@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
 namespace CFRezManager;
@@ -64,7 +63,6 @@ public partial class MainWindow : Window
     private readonly List<ExplorerItem> _forwardHistory = new();
     private readonly UserSettings _settings;
     private readonly HashSet<ExplorerItem> _dragInitialSelection = new();
-    private readonly DispatcherTimer _thumbnailLoadTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private List<SearchEntry> _searchIndex = new();
     private AppLanguage _language = AppLanguage.Chinese;
     private string _statusKey = "Ready";
@@ -205,7 +203,6 @@ public partial class MainWindow : Window
         ApplyViewSize(ViewSizeSlider.Value);
         ApplyLanguage();
         LoadEmptyStateImage();
-        _thumbnailLoadTimer.Tick += ThumbnailLoadTimer_Tick;
         Loaded += MainWindow_Loaded;
     }
 
@@ -367,48 +364,22 @@ public partial class MainWindow : Window
 
     private void ExplorerItemTemplate_Loaded(object sender, RoutedEventArgs e)
     {
-        ScheduleVisibleThumbnailLoad();
+        if (sender is FrameworkElement element)
+        {
+            QueueThumbnailLoad(element.DataContext);
+        }
     }
 
     private void ExplorerItemTemplate_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        ScheduleVisibleThumbnailLoad();
+        QueueThumbnailLoad(e.NewValue);
     }
 
-    private void ContentsList_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    private static void QueueThumbnailLoad(object? dataContext)
     {
-        ScheduleVisibleThumbnailLoad();
-    }
-
-    private void ThumbnailLoadTimer_Tick(object? sender, EventArgs e)
-    {
-        _thumbnailLoadTimer.Stop();
-        QueueVisibleThumbnailLoads();
-    }
-
-    private void ScheduleVisibleThumbnailLoad()
-    {
-        if (!IsInitialized)
+        if (dataContext is ExplorerItem item && item.IsThumbnailCandidate)
         {
-            return;
-        }
-
-        _thumbnailLoadTimer.Stop();
-        _thumbnailLoadTimer.Start();
-    }
-
-    private void QueueVisibleThumbnailLoads()
-    {
-        foreach (ListBoxItem container in FindVisualChildren<ListBoxItem>(ContentsList))
-        {
-            if (container.DataContext is not ExplorerItem explorerItem ||
-                !explorerItem.IsThumbnailCandidate ||
-                !IsElementInViewport(container, ContentsList))
-            {
-                continue;
-            }
-
-            _ = explorerItem.LoadThumbnailAsync();
+            _ = item.LoadThumbnailAsync();
         }
     }
 
@@ -696,6 +667,7 @@ public partial class MainWindow : Window
         TileFilePageWidth = TileIconSize * 0.68;
         TileFilePageHeight = TileIconSize * 0.88;
         TileNameMaxHeight = 34 + (18 * factor);
+        UpdateTileMetricResources();
 
         if (_isListViewMode)
         {
@@ -706,6 +678,20 @@ public partial class MainWindow : Window
         }
 
         ContentsList.InvalidateMeasure();
+    }
+
+    private void UpdateTileMetricResources()
+    {
+        Resources["TileItemWidthValue"] = TileItemWidth;
+        Resources["TileItemHeightValue"] = TileItemHeight;
+        Resources["TileCellWidthValue"] = TileCellWidth;
+        Resources["TileCellHeightValue"] = TileCellHeight;
+        Resources["TileIconSizeValue"] = TileIconSize;
+        Resources["TileIconRowHeightValue"] = new GridLength(TileIconRowHeight);
+        Resources["TileFileIconWidthValue"] = TileFileIconWidth;
+        Resources["TileFilePageWidthValue"] = TileFilePageWidth;
+        Resources["TileFilePageHeightValue"] = TileFilePageHeight;
+        Resources["TileNameMaxHeightValue"] = TileNameMaxHeight;
     }
 
     private static double ClampViewSize(double value)
@@ -872,53 +858,6 @@ public partial class MainWindow : Window
         }
 
         return null;
-    }
-
-    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
-    {
-        int childCount = VisualTreeHelper.GetChildrenCount(parent);
-        for (int i = 0; i < childCount; i++)
-        {
-            DependencyObject child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (T descendant in FindVisualChildren<T>(child))
-            {
-                yield return descendant;
-            }
-        }
-    }
-
-    private static bool IsElementInViewport(FrameworkElement element, FrameworkElement viewport)
-    {
-        if (element.ActualWidth <= 0 ||
-            element.ActualHeight <= 0 ||
-            viewport.ActualWidth <= 0 ||
-            viewport.ActualHeight <= 0)
-        {
-            return false;
-        }
-
-        try
-        {
-            Rect elementBounds = element.TransformToAncestor(viewport)
-                .TransformBounds(new Rect(new System.Windows.Point(0, 0), element.RenderSize));
-            var viewportBounds = new Rect(
-                new System.Windows.Point(0, 0),
-                new System.Windows.Size(viewport.ActualWidth, viewport.ActualHeight));
-            return elementBounds.IntersectsWith(viewportBounds);
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
     }
 
     private void ApplyLanguage()
