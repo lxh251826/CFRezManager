@@ -1,5 +1,5 @@
 # CF Rez Manager
-![alt text](image.png)
+![alt text](image-1.png)
 
 CF Rez Manager is a Windows WPF tool for browsing, extracting, and packing LithTech / CF `.rez` archives.
 
