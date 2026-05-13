@@ -362,6 +362,27 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ExplorerItemTemplate_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            QueueThumbnailLoad(element.DataContext);
+        }
+    }
+
+    private void ExplorerItemTemplate_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        QueueThumbnailLoad(e.NewValue);
+    }
+
+    private static void QueueThumbnailLoad(object? dataContext)
+    {
+        if (dataContext is ExplorerItem item && item.IsThumbnailCandidate)
+        {
+            _ = item.LoadThumbnailAsync();
+        }
+    }
+
     private async void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton == MouseButton.XButton1)

@@ -45,7 +45,9 @@
         </ItemsPanelTemplate>
 
         <DataTemplate x:Key="ExplorerIconTemplate">
-            <Grid ToolTip="{Binding InfoToolTip}">
+            <Grid ToolTip="{Binding InfoToolTip}"
+                  Loaded="ExplorerItemTemplate_Loaded"
+                  DataContextChanged="ExplorerItemTemplate_DataContextChanged">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="{Binding TileIconRowHeight, RelativeSource={RelativeSource AncestorType=Window}}"/>
                     <RowDefinition Height="*"/>
@@ -125,7 +127,9 @@
         </DataTemplate>
 
         <DataTemplate x:Key="ExplorerListTemplate">
-            <Grid ToolTip="{Binding InfoToolTip}">
+            <Grid ToolTip="{Binding InfoToolTip}"
+                  Loaded="ExplorerItemTemplate_Loaded"
+                  DataContextChanged="ExplorerItemTemplate_DataContextChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="32"/>
                     <ColumnDefinition Width="2*"/>

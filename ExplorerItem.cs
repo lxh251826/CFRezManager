@@ -1,4 +1,6 @@
 using System.IO;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -12,9 +14,11 @@ public enum ExplorerItemKind
     RezFile
 }
 
-public sealed class ExplorerItem
+public sealed class ExplorerItem : INotifyPropertyChanged
 {
     private static readonly ImageSource? FolderIconImage = LoadFolderIcon();
+    private static readonly SemaphoreSlim ThumbnailSemaphore = new(3);
+    private const int MaxThumbnailBytes = 32 * 1024 * 1024;
     private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "png",
@@ -26,7 +30,8 @@ public sealed class ExplorerItem
         "tiff"
     };
 
-    private bool _thumbnailLoadAttempted;
+    private readonly object _thumbnailSync = new();
+    private Task? _thumbnailLoadTask;
     private ImageSource? _thumbnailSource;
 
     public required string Name { get; init; }
@@ -44,23 +49,13 @@ public sealed class ExplorerItem
 
     public ImageSource? IconSource => IsContainer ? FolderIconImage : null;
 
-    public bool HasThumbnail
-    {
-        get
-        {
-            EnsureThumbnailLoaded();
-            return _thumbnailSource is not null;
-        }
-    }
+    public bool IsThumbnailCandidate => CanLoadThumbnail();
 
-    public ImageSource? ThumbnailSource
-    {
-        get
-        {
-            EnsureThumbnailLoaded();
-            return _thumbnailSource;
-        }
-    }
+    public bool HasThumbnail => _thumbnailSource is not null;
+
+    public ImageSource? ThumbnailSource => _thumbnailSource;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public long? SizeBytes
     {
@@ -191,20 +186,40 @@ public sealed class ExplorerItem
         return hasSize ? total : null;
     }
 
-    private void EnsureThumbnailLoaded()
+    public Task LoadThumbnailAsync()
     {
-        if (_thumbnailLoadAttempted)
+        if (!IsThumbnailCandidate || _thumbnailSource is not null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        _thumbnailLoadAttempted = true;
-        if (!CanLoadThumbnail())
+        lock (_thumbnailSync)
         {
-            return;
+            _thumbnailLoadTask ??= LoadThumbnailCoreAsync();
+            return _thumbnailLoadTask;
         }
+    }
 
-        _thumbnailSource = LoadRezThumbnail();
+    private async Task LoadThumbnailCoreAsync()
+    {
+        await ThumbnailSemaphore.WaitAsync();
+        try
+        {
+            ImageSource? thumbnail = await Task.Run(LoadRezThumbnail);
+            if (thumbnail is not null)
+            {
+                _thumbnailSource = thumbnail;
+                OnPropertyChanged(nameof(ThumbnailSource));
+                OnPropertyChanged(nameof(HasThumbnail));
+            }
+        }
+        catch
+        {
+        }
+        finally
+        {
+            ThumbnailSemaphore.Release();
+        }
     }
 
     private bool CanLoadThumbnail()
@@ -219,7 +234,10 @@ public sealed class ExplorerItem
     {
         try
         {
-            if (Archive is null || ArchiveFile is null || ArchiveFile.Size <= 0)
+            if (Archive is null ||
+                ArchiveFile is null ||
+                ArchiveFile.Size <= 0 ||
+                ArchiveFile.Size > MaxThumbnailBytes)
             {
                 return null;
             }
@@ -247,6 +265,11 @@ public sealed class ExplorerItem
         {
             return null;
         }
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     private static long? SumRezNodeSizes(RezDirectoryNode? directory)
