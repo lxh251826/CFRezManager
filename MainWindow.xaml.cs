@@ -1,4 +1,5 @@
 using System.IO;
+using System.Globalization;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,10 +12,19 @@ namespace CFRezManager;
 
 public partial class MainWindow : Window
 {
+    private enum AppLanguage
+    {
+        Chinese,
+        English
+    }
+
     private ExplorerItem? _rootItem;
     private ExplorerItem? _currentItem;
     private readonly List<ExplorerItem> _backHistory = new();
     private readonly List<ExplorerItem> _forwardHistory = new();
+    private AppLanguage _language = AppLanguage.Chinese;
+    private string _statusKey = "Ready";
+    private object[] _statusArgs = [];
     private string _selectedDirectory = string.Empty;
     private int _archiveCount;
     private int _extractableFileCount;
@@ -22,9 +32,52 @@ public partial class MainWindow : Window
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
 
+    private static readonly IReadOnlyDictionary<string, (string Chinese, string English)> Texts =
+        new Dictionary<string, (string Chinese, string English)>
+        {
+            ["BrowseFolder"] = ("选择文件夹...", "Select Folder..."),
+            ["ExtractAll"] = ("全部导出...", "Extract All..."),
+            ["PackFolder"] = ("打包文件夹...", "Pack Folder..."),
+            ["HeaderDefault"] = ("选择一个文件夹扫描 REZ 资源包", "Choose a folder to scan REZ archives"),
+            ["Contents"] = ("内容", "Contents"),
+            ["EmptyFolder"] = ("空目录", "Empty folder"),
+            ["Ready"] = ("就绪", "Ready"),
+            ["NoFolderSelected"] = ("未选择文件夹", "No folder selected"),
+            ["SelectRezFolderDescription"] = ("选择包含 REZ 资源包的文件夹。", "Select the folder that contains REZ archives."),
+            ["SelectPackFolderDescription"] = ("选择要打包成 REZ 的文件夹。", "Select the folder to pack into a REZ archive."),
+            ["SelectOutputFolderDescription"] = ("选择输出文件夹。", "Select an output folder."),
+            ["SaveRezArchiveTitle"] = ("保存 REZ 资源包", "Save REZ archive"),
+            ["RezFileFilter"] = ("REZ 资源包 (*.rez)|*.rez|所有文件 (*.*)|*.*", "REZ archives (*.rez)|*.rez|All files (*.*)|*.*"),
+            ["PreparingRezArchives"] = ("正在准备 REZ 资源包...", "Preparing REZ archives..."),
+            ["SelectedItemsLabel"] = ("{0:N0} 个选中项", "{0:N0} selected items"),
+            ["PreparingItem"] = ("正在准备 {0}...", "Preparing {0}..."),
+            ["PackingArchive"] = ("正在打包 REZ 资源包...", "Packing REZ archive..."),
+            ["PackingProgress"] = ("正在打包 {0:N0}/{1:N0}: {2}", "Packing {0:N0}/{1:N0}: {2}"),
+            ["PackedResult"] = ("已将 {0:N0} 个文件打包到 {1}", "Packed {0:N0} files into {1}"),
+            ["PackFailed"] = ("打包失败", "Pack failed"),
+            ["NoFilesToExtract"] = ("没有可导出的文件", "No files to extract"),
+            ["ExtractingStart"] = ("正在使用 {1} 个线程导出 {0:N0} 个文件...", "Extracting {0:N0} files with {1} workers..."),
+            ["ExtractingProgress"] = ("正在导出 {0:N0}/{1:N0}: {2}", "Extracting {0:N0}/{1:N0}: {2}"),
+            ["ExtractedResult"] = ("已将 {0:N0} 个文件导出到 {1}", "Extracted {0:N0} files to {1}"),
+            ["ExtractFailed"] = ("导出失败", "Extract failed"),
+            ["ScanningRezArchives"] = ("正在扫描 REZ 资源包...", "Scanning REZ archives..."),
+            ["FoundRezArchives"] = ("找到 {0:N0} 个 REZ 资源包", "Found {0:N0} REZ archives"),
+            ["ScanFailed"] = ("扫描失败", "Scan failed"),
+            ["LoadFailed"] = ("加载失败", "Load failed"),
+            ["LoadingItem"] = ("正在加载 {0}...", "Loading {0}..."),
+            ["LoadedItems"] = ("已从 {1} 加载 {0:N0} 项", "Loaded {0:N0} items from {1}"),
+            ["ShowingItems"] = ("显示 {0:N0} 项", "Showing {0:N0} items"),
+            ["ExtractThisItem"] = ("导出此项...", "Extract This Item..."),
+            ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
+            ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
+            ["ErrorStatus"] = ("{0}: {1}", "{0}: {1}")
+        };
+
     public MainWindow()
     {
         InitializeComponent();
+        LanguageComboBox.SelectedIndex = 0;
+        ApplyLanguage();
         LoadEmptyStateImage();
         Loaded += MainWindow_Loaded;
     }
@@ -33,20 +86,20 @@ public partial class MainWindow : Window
     {
         Loaded -= MainWindow_Loaded;
 
-        string? folder = SelectFolder("Select the folder that contains REZ archives.", null);
+        string? folder = SelectFolder(T("SelectRezFolderDescription"), null);
         if (folder is not null)
         {
             await LoadDirectoryAsync(folder);
         }
         else
         {
-            StatusText.Text = "No folder selected";
+            SetStatus("NoFolderSelected");
         }
     }
 
     private async void BrowseFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        string? folder = SelectFolder("Select the folder that contains REZ archives.", _selectedDirectory);
+        string? folder = SelectFolder(T("SelectRezFolderDescription"), _selectedDirectory);
         if (folder is not null)
         {
             await LoadDirectoryAsync(folder);
@@ -55,7 +108,7 @@ public partial class MainWindow : Window
 
     private async void PackFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        string? sourceDirectory = SelectFolder("Select the folder to pack into a REZ archive.", _selectedDirectory);
+        string? sourceDirectory = SelectFolder(T("SelectPackFolderDescription"), _selectedDirectory);
         if (sourceDirectory is null)
         {
             return;
@@ -72,19 +125,19 @@ public partial class MainWindow : Window
         try
         {
             WorkProgress.IsIndeterminate = true;
-            StatusText.Text = "Packing REZ archive...";
+            SetStatus("PackingArchive");
 
             var progress = new Progress<RezArchiveWriteProgress>(state =>
             {
-                StatusText.Text = $"Packing {state.CompletedFiles:N0}/{state.TotalFiles:N0}: {state.FileName}";
+                SetStatus("PackingProgress", state.CompletedFiles, state.TotalFiles, state.FileName);
             });
 
             RezArchiveWriteResult result = await Task.Run(() => RezArchiveWriter.WriteFromDirectory(sourceDirectory, outputPath, progress));
-            StatusText.Text = $"Packed {result.FileCount:N0} files into {outputPath}";
+            SetStatus("PackedResult", result.FileCount, outputPath);
         }
         catch (Exception ex)
         {
-            ShowError("Pack failed", ex);
+            ShowError("PackFailed", ex);
         }
         finally
         {
@@ -99,7 +152,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await ExtractItemsAsync(new[] { _rootItem }, "Preparing REZ archives...");
+        await ExtractItemsAsync(new[] { _rootItem }, T("PreparingRezArchives"));
     }
 
     private async void ExtractSelectedMenuItem_Click(object sender, RoutedEventArgs e)
@@ -110,8 +163,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        string label = selectedItems.Count == 1 ? selectedItems[0].Name : $"{selectedItems.Count:N0} selected items";
-        await ExtractItemsAsync(selectedItems, $"Preparing {label}...");
+        string label = selectedItems.Count == 1 ? selectedItems[0].Name : FormatText("SelectedItemsLabel", selectedItems.Count);
+        await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label));
     }
 
     private async Task ExtractItemsAsync(IReadOnlyCollection<ExplorerItem> items, string preparingMessage)
@@ -121,7 +174,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        string? outputDirectory = SelectFolder("Select an output folder.", _selectedDirectory);
+        string? outputDirectory = SelectFolder(T("SelectOutputFolderDescription"), _selectedDirectory);
         if (outputDirectory is null)
         {
             return;
@@ -132,7 +185,7 @@ public partial class MainWindow : Window
         try
         {
             WorkProgress.IsIndeterminate = true;
-            StatusText.Text = preparingMessage;
+            SetStatusText(preparingMessage);
 
             await Task.Run(() => LoadItemsForExtraction(items));
 
@@ -146,12 +199,12 @@ public partial class MainWindow : Window
             _extractableFileCount = files.Count;
             if (files.Count == 0)
             {
-                StatusText.Text = "No files to extract";
+                SetStatus("NoFilesToExtract");
                 return;
             }
 
             int workerCount = GetExtractionWorkerCount(files.Count);
-            StatusText.Text = $"Extracting {files.Count:N0} files with {workerCount} workers...";
+            SetStatus("ExtractingStart", files.Count, workerCount);
             WorkProgress.IsIndeterminate = false;
             WorkProgress.Minimum = 0;
             WorkProgress.Maximum = files.Count;
@@ -160,16 +213,16 @@ public partial class MainWindow : Window
             var progress = new Progress<ExtractionProgress>(state =>
             {
                 WorkProgress.Value = state.Completed;
-                StatusText.Text = $"Extracting {state.Completed:N0}/{state.Total:N0}: {state.FileName}";
+                SetStatus("ExtractingProgress", state.Completed, state.Total, state.FileName);
             });
 
             await Task.Run(() => ExtractFilesParallel(outputDirectory, items, files, workerCount, progress));
 
-            StatusText.Text = $"Extracted {files.Count:N0} files to {outputDirectory}";
+            SetStatus("ExtractedResult", files.Count, outputDirectory);
         }
         catch (Exception ex)
         {
-            ShowError("Extract failed", ex);
+            ShowError("ExtractFailed", ex);
         }
         finally
         {
@@ -220,8 +273,21 @@ public partial class MainWindow : Window
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
         ExtractSelectedMenuItem.IsEnabled = !_isBusy && selectedItems.Count > 0;
         ExtractSelectedMenuItem.Header = selectedItems.Count == 1
-            ? "Extract This Item..."
-            : $"Extract {selectedItems.Count:N0} Selected Items...";
+            ? T("ExtractThisItem")
+            : FormatText("ExtractSelectedItems", selectedItems.Count);
+    }
+
+    private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (LanguageComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
+        {
+            return;
+        }
+
+        _language = string.Equals(tag, "en", StringComparison.OrdinalIgnoreCase)
+            ? AppLanguage.English
+            : AppLanguage.Chinese;
+        ApplyLanguage();
     }
 
     private List<ExplorerItem> GetSelectedExplorerItems()
@@ -242,6 +308,69 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    private void ApplyLanguage()
+    {
+        BrowseFolderButton.Content = T("BrowseFolder");
+        ExtractAllButton.Content = T("ExtractAll");
+        PackFolderButton.Content = T("PackFolder");
+        ContentsHeaderText.Text = T("Contents");
+        EmptyStateText.Text = T("EmptyFolder");
+        ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
+
+        if (_currentItem is null)
+        {
+            HeaderText.Text = T("HeaderDefault");
+        }
+
+        RefreshStatusText();
+    }
+
+    private string T(string key)
+    {
+        if (!Texts.TryGetValue(key, out (string Chinese, string English) text))
+        {
+            return key;
+        }
+
+        return _language == AppLanguage.English ? text.English : text.Chinese;
+    }
+
+    private string FormatText(string key, params object[] args)
+    {
+        return args.Length == 0
+            ? T(key)
+            : string.Format(CultureInfo.CurrentCulture, T(key), args);
+    }
+
+    private void SetStatus(string key, params object[] args)
+    {
+        _statusKey = key;
+        _statusArgs = args;
+        RefreshStatusText();
+    }
+
+    private void SetStatusText(string text)
+    {
+        _statusKey = string.Empty;
+        _statusArgs = [];
+        StatusText.Text = text;
+    }
+
+    private void RefreshStatusText()
+    {
+        if (string.IsNullOrEmpty(_statusKey))
+        {
+            return;
+        }
+
+        StatusText.Text = FormatText(_statusKey, _statusArgs);
+    }
+
+    private void SetFolderStatus(ExplorerItem item)
+    {
+        SetStatus(item.Children.Count == 0 ? "EmptyFolder" : "ShowingItems", item.Children.Count);
     }
 
     private async void BreadcrumbButton_Click(object sender, RoutedEventArgs e)
@@ -290,7 +419,7 @@ public partial class MainWindow : Window
         HeaderText.Text = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         BreadcrumbPanel.Children.Clear();
         BreadcrumbPanel.Children.Add(new TextBlock { Text = folder, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
-        StatusText.Text = "Scanning REZ archives...";
+        SetStatus("ScanningRezArchives");
         WorkProgress.IsIndeterminate = true;
 
         try
@@ -305,7 +434,7 @@ public partial class MainWindow : Window
 
             await ShowFolderAsync(root, addToHistory: false);
 
-            StatusText.Text = $"Found {_archiveCount:N0} REZ archives";
+            SetStatus("FoundRezArchives", _archiveCount);
         }
         catch (Exception ex)
         {
@@ -315,7 +444,7 @@ public partial class MainWindow : Window
             _forwardHistory.Clear();
             ContentsList.ItemsSource = null;
             EmptyStatePanel.Visibility = Visibility.Collapsed;
-            ShowError("Scan failed", ex);
+            ShowError("ScanFailed", ex);
         }
         finally
         {
@@ -423,7 +552,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            ShowError("Load failed", ex);
+            ShowError("LoadFailed", ex);
             return;
         }
 
@@ -438,9 +567,7 @@ public partial class MainWindow : Window
         ContentsList.ItemsSource = item.Children;
         EmptyStatePanel.Visibility = item.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         HeaderText.Text = item.Name;
-        StatusText.Text = item.Children.Count == 0
-            ? "\u7A7A\u76EE\u5F55"
-            : $"\u663E\u793A {item.Children.Count:N0} \u9879";
+        SetFolderStatus(item);
         RenderBreadcrumb(item);
         UpdateCommandState();
         if (item.Children.Count > 0)
@@ -459,12 +586,12 @@ public partial class MainWindow : Window
         SetBusy(true);
         WorkProgress.IsIndeterminate = true;
         string loadingTarget = item.Kind == ExplorerItemKind.RezArchive ? $"{item.Name}.rez" : item.Name;
-        StatusText.Text = $"Loading {loadingTarget}...";
+        SetStatus("LoadingItem", loadingTarget);
 
         try
         {
             await Task.Run(() => LoadContainerChildren(item));
-            StatusText.Text = $"Loaded {item.Children.Count:N0} items from {item.Name}";
+            SetStatus("LoadedItems", item.Children.Count, item.Name);
         }
         finally
         {
@@ -502,7 +629,7 @@ public partial class MainWindow : Window
         return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.SelectedPath : null;
     }
 
-    private static string? SelectRezOutputFile(string sourceDirectory)
+    private string? SelectRezOutputFile(string sourceDirectory)
     {
         string sourceName = Path.GetFileName(sourceDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         if (string.IsNullOrWhiteSpace(sourceName))
@@ -512,8 +639,8 @@ public partial class MainWindow : Window
 
         using var dialog = new Forms.SaveFileDialog
         {
-            Title = "Save REZ archive",
-            Filter = "REZ archives (*.rez)|*.rez|All files (*.*)|*.*",
+            Title = T("SaveRezArchiveTitle"),
+            Filter = T("RezFileFilter"),
             DefaultExt = "rez",
             AddExtension = true,
             OverwritePrompt = true,
@@ -804,9 +931,10 @@ public partial class MainWindow : Window
         return string.IsNullOrEmpty(parent) ? child : Path.Combine(parent, child);
     }
 
-    private void ShowError(string title, Exception ex)
+    private void ShowError(string titleKey, Exception ex)
     {
-        StatusText.Text = $"{title}: {ex.Message}";
+        string title = T(titleKey);
+        SetStatus("ErrorStatus", title, ex.Message);
         System.Windows.MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
     }
 

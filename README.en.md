@@ -29,6 +29,8 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 3. Double-click normal folders, REZ archives, or internal REZ folders to enter them.
 4. Use the breadcrumb bar to jump back to parent locations.
 
+Use the language selector in the top toolbar to switch between `中文` and `English`. Buttons, context menus, status text, and common dialog prompts update with the selected language.
+
 Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.

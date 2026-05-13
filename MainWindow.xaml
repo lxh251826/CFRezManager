@@ -99,24 +99,33 @@
         <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                 <Button x:Name="BrowseFolderButton"
-                        Content="Select Folder..."
+                        Content="选择文件夹..."
                         Click="BrowseFolderButton_Click"
                         Padding="14,7"
                         Margin="0,0,8,0"/>
                 <Button x:Name="ExtractAllButton"
-                        Content="Extract All..."
+                        Content="全部导出..."
                         Click="ExtractAllButton_Click"
                         IsEnabled="False"
                         Padding="14,7"
                         Margin="0,0,8,0"/>
                 <Button x:Name="PackFolderButton"
-                        Content="Pack Folder..."
+                        Content="打包文件夹..."
                         Click="PackFolderButton_Click"
-                        Padding="14,7"/>
+                        Padding="14,7"
+                        Margin="0,0,8,0"/>
+                <ComboBox x:Name="LanguageComboBox"
+                          Width="116"
+                          Padding="8,6"
+                          VerticalContentAlignment="Center"
+                          SelectionChanged="LanguageComboBox_SelectionChanged">
+                    <ComboBoxItem Content="中文" Tag="zh"/>
+                    <ComboBoxItem Content="English" Tag="en"/>
+                </ComboBox>
             </StackPanel>
 
             <TextBlock x:Name="HeaderText"
-                       Text="Choose a folder to scan REZ archives"
+                       Text="选择一个文件夹扫描 REZ 资源包"
                        Visibility="Collapsed"
                        VerticalAlignment="Center"
                        FontSize="17"
@@ -139,8 +148,9 @@
 
         <Border Grid.Row="2" BorderBrush="#D7DCE2" BorderThickness="1">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top"
-                           Text="Contents"
+                <TextBlock x:Name="ContentsHeaderText"
+                           DockPanel.Dock="Top"
+                           Text="内容"
                            FontWeight="SemiBold"
                            Padding="10,8"
                            Background="#F5F7FA"/>
@@ -162,7 +172,7 @@
                         <ListBox.ContextMenu>
                             <ContextMenu Opened="ContentsContextMenu_Opened">
                                 <MenuItem x:Name="ExtractSelectedMenuItem"
-                                          Header="Extract Selected..."
+                                          Header="导出选中项..."
                                           Click="ExtractSelectedMenuItem_Click"/>
                             </ContextMenu>
                         </ListBox.ContextMenu>
@@ -185,6 +195,7 @@
                                Stretch="Uniform"
                                HorizontalAlignment="Center"/>
                         <TextBlock Text="&#x7A7A;&#x76EE;&#x5F55;"
+                                   x:Name="EmptyStateText"
                                    TextAlignment="Center"
                                    HorizontalAlignment="Center"
                                    Margin="0,10,0,0"
@@ -204,7 +215,7 @@
                          Maximum="100"
                          Visibility="Collapsed"/>
             <TextBlock x:Name="StatusText"
-                       Text="Ready"
+                       Text="就绪"
                        Foreground="#4B5563"
                        VerticalAlignment="Center"/>
         </DockPanel>
