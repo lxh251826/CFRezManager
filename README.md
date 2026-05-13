@@ -1,5 +1,6 @@
 # CF Rez Manager
 ![alt text](image-1.png)
+![alt text](image.png)
 
 CF Rez Manager 是一个 Windows WPF 工具，用于浏览、解包和重新打包 LithTech / CF 的 `.rez` 资源包。
 
