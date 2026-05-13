@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish Windows x64 package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $publishDir = "publish/CFRezManager-$version-win-x64"
+          $zipDir = "release"
+          $zipPath = "$zipDir/CFRezManager-$version-win-x64.zip"
+
+          dotnet publish ./CFRezManager.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o $publishDir
+
+          New-Item -ItemType Directory -Force $zipDir | Out-Null
+          Compress-Archive -Path "$publishDir/*" -DestinationPath $zipPath -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "CF Rez Manager ${{ github.ref_name }}"
+          files: release/CFRezManager-${{ github.ref_name }}-win-x64.zip
+          body: |
+            CF Rez Manager ${{ github.ref_name }}
+
+            - 浏览 REZ 资源包
+            - 全部导出和右键指定项导出
+            - 从文件夹重新打包 REZ
+            - 中文 / English 语言切换
+            - 记住上次语言和常用目录
+            - 鼠标前进后退与左键拖动框选
