@@ -16,6 +16,7 @@ public sealed class UserSettings
     public string LastPackDirectory { get; set; } = string.Empty;
     public string LastOutputDirectory { get; set; } = string.Empty;
     public string LastSaveDirectory { get; set; } = string.Empty;
+    public double ViewSize { get; set; } = 72;
 
     public static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

@@ -31,7 +31,7 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 
 Use the language selector in the top toolbar to switch between `中文` and `English`. Buttons, context menus, status text, and common dialog prompts update with the selected language.
 
-The app remembers the selected language and the folders used for scanning, packing, extracting, and saving REZ files. On the next launch or the next matching dialog, it starts from the last used location.
+The app remembers the selected language, bottom-right size slider, and the folders used for scanning, packing, extracting, and saving REZ files. On the next launch or the next matching dialog, it restores the last used settings and location.
 
 The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly, similar to Everything. Separate multiple keywords with spaces to require all terms to match.
 

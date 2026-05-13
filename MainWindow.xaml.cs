@@ -199,6 +199,7 @@ public partial class MainWindow : Window
         _language = ParseLanguage(_settings.Language);
         InitializeComponent();
         LanguageComboBox.SelectedIndex = _language == AppLanguage.English ? 1 : 0;
+        ViewSizeSlider.Value = ClampViewSize(_settings.ViewSize);
         ApplyViewSize(ViewSizeSlider.Value);
         ApplyLanguage();
         LoadEmptyStateImage();
@@ -521,6 +522,8 @@ public partial class MainWindow : Window
         }
 
         ApplyViewSize(e.NewValue);
+        _settings.ViewSize = e.NewValue;
+        _settings.Save();
     }
 
     private List<ExplorerItem> GetSelectedExplorerItems()
@@ -653,6 +656,16 @@ public partial class MainWindow : Window
         }
 
         ContentsList.InvalidateMeasure();
+    }
+
+    private static double ClampViewSize(double value)
+    {
+        if (double.IsNaN(value))
+        {
+            return 72;
+        }
+
+        return Math.Clamp(value, 0, 100);
     }
 
     private async Task EnsureSearchIndexAsync()
