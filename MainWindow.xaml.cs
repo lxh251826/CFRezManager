@@ -78,6 +78,8 @@ public partial class MainWindow : Window
     private bool _isSearchMode;
     private bool _suppressSearchTextChanged;
     private int _searchRequestVersion;
+    private Task? _searchIndexTask;
+    private ExplorerItem? _searchIndexTaskRoot;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
     private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
@@ -712,7 +714,18 @@ public partial class MainWindow : Window
         }
 
         ExplorerItem root = _rootItem;
-        SetBusy(true);
+        if (_searchIndexTask is null || !ReferenceEquals(_searchIndexTaskRoot, root))
+        {
+            _searchIndexTaskRoot = root;
+            _searchIndexTask = BuildSearchIndexAsync(root);
+        }
+
+        await _searchIndexTask;
+    }
+
+    private async Task BuildSearchIndexAsync(ExplorerItem root)
+    {
+        SetBusy(true, keepSearchEnabled: true);
         SetStatus("BuildingSearchIndex");
 
         try
@@ -732,6 +745,11 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false);
+            if (ReferenceEquals(_searchIndexTaskRoot, root))
+            {
+                _searchIndexTask = null;
+                _searchIndexTaskRoot = null;
+            }
         }
     }
 
@@ -838,6 +856,8 @@ public partial class MainWindow : Window
         _searchIndex.Clear();
         _isSearchIndexReady = false;
         _isSearchMode = false;
+        _searchIndexTask = null;
+        _searchIndexTaskRoot = null;
         _searchRequestVersion++;
         if (clearText)
         {
@@ -1168,15 +1188,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetBusy(bool isBusy)
+    private void SetBusy(bool isBusy, bool keepSearchEnabled = false)
     {
         _isBusy = isBusy;
         WorkProgress.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         WorkProgress.IsIndeterminate = isBusy;
         BrowseFolderButton.IsEnabled = !isBusy;
         PackFolderButton.IsEnabled = !isBusy;
-        SearchTextBox.IsEnabled = !isBusy;
-        ClearSearchButton.IsEnabled = !isBusy && SearchTextBox.Text.Length > 0;
+        bool searchEnabled = !isBusy || keepSearchEnabled;
+        SearchTextBox.IsEnabled = searchEnabled;
+        ClearSearchButton.IsEnabled = searchEnabled && SearchTextBox.Text.Length > 0;
         ContentsList.IsEnabled = !isBusy;
         UpdateCommandState();
     }
