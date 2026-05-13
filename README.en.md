@@ -33,6 +33,8 @@ Use the language selector in the top toolbar to switch between `中文` and `Eng
 
 The app remembers the selected language and the folders used for scanning, packing, extracting, and saving REZ files. On the next launch or the next matching dialog, it starts from the last used location.
 
+The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly, similar to Everything. Separate multiple keywords with spaces to require all terms to match.
+
 Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.

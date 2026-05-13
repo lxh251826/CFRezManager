@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private readonly List<ExplorerItem> _forwardHistory = new();
     private readonly UserSettings _settings;
     private readonly HashSet<ExplorerItem> _dragInitialSelection = new();
+    private List<SearchEntry> _searchIndex = new();
     private AppLanguage _language = AppLanguage.Chinese;
     private string _statusKey = "Ready";
     private object[] _statusArgs = [];
@@ -40,8 +41,13 @@ public partial class MainWindow : Window
     private int _extractableFileCount;
     private bool _isBusy;
     private bool _isDragSelecting;
+    private bool _isSearchIndexReady;
+    private bool _isSearchMode;
+    private bool _suppressSearchTextChanged;
+    private int _searchRequestVersion;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
+    private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
 
     private static readonly IReadOnlyDictionary<string, (string Chinese, string English)> Texts =
         new Dictionary<string, (string Chinese, string English)>
@@ -51,6 +57,14 @@ public partial class MainWindow : Window
             ["PackFolder"] = ("打包文件夹...", "Pack Folder..."),
             ["HeaderDefault"] = ("选择一个文件夹扫描 REZ 资源包", "Choose a folder to scan REZ archives"),
             ["Contents"] = ("内容", "Contents"),
+            ["SearchLabel"] = ("搜索:", "Search:"),
+            ["SearchTooltip"] = ("输入关键字快速搜索已扫描的文件和目录", "Type keywords to quickly search indexed files and folders"),
+            ["ClearSearch"] = ("清除搜索", "Clear search"),
+            ["BuildingSearchIndex"] = ("正在建立搜索索引...", "Building search index..."),
+            ["SearchIndexReady"] = ("搜索索引已就绪，共 {0:N0} 项", "Search index ready, {0:N0} items"),
+            ["SearchResults"] = ("搜索 “{0}”：找到 {1:N0} 项", "Search \"{0}\": {1:N0} items found"),
+            ["SearchNoResults"] = ("搜索 “{0}”：没有结果", "Search \"{0}\": no results"),
+            ["SearchFailed"] = ("搜索失败", "Search failed"),
             ["EmptyFolder"] = ("空目录", "Empty folder"),
             ["Ready"] = ("就绪", "Ready"),
             ["NoFolderSelected"] = ("未选择文件夹", "No folder selected"),
@@ -365,6 +379,44 @@ public partial class MainWindow : Window
         ApplyLanguage();
     }
 
+    private async void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressSearchTextChanged)
+        {
+            return;
+        }
+
+        string query = SearchTextBox.Text.Trim();
+        ClearSearchButton.IsEnabled = query.Length > 0;
+        int requestVersion = ++_searchRequestVersion;
+
+        if (query.Length == 0)
+        {
+            ExitSearchMode();
+            return;
+        }
+
+        if (_rootItem is null)
+        {
+            return;
+        }
+
+        if (!_isSearchIndexReady)
+        {
+            await EnsureSearchIndexAsync();
+        }
+
+        if (_isSearchIndexReady && requestVersion == _searchRequestVersion && SearchTextBox.Text.Trim().Length > 0)
+        {
+            ApplySearch(SearchTextBox.Text.Trim());
+        }
+    }
+
+    private void ClearSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClearSearchText();
+    }
+
     private List<ExplorerItem> GetSelectedExplorerItems()
     {
         return ContentsList.SelectedItems.OfType<ExplorerItem>().ToList();
@@ -457,6 +509,147 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task EnsureSearchIndexAsync()
+    {
+        if (_isSearchIndexReady || _rootItem is null)
+        {
+            return;
+        }
+
+        ExplorerItem root = _rootItem;
+        SetBusy(true);
+        SetStatus("BuildingSearchIndex");
+
+        try
+        {
+            List<SearchEntry> index = await Task.Run(() => BuildSearchIndex(root));
+            if (ReferenceEquals(root, _rootItem))
+            {
+                _searchIndex = index;
+                _isSearchIndexReady = true;
+                SetStatus("SearchIndexReady", index.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("SearchFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private static List<SearchEntry> BuildSearchIndex(ExplorerItem root)
+    {
+        LoadAllArchives(root);
+
+        var entries = new List<SearchEntry>();
+        foreach (ExplorerItem child in root.Children)
+        {
+            CollectSearchEntries(child, entries);
+        }
+
+        return entries;
+    }
+
+    private static void CollectSearchEntries(ExplorerItem item, List<SearchEntry> entries)
+    {
+        entries.Add(new SearchEntry(item, CreateSearchText(item)));
+        foreach (ExplorerItem child in item.Children)
+        {
+            CollectSearchEntries(child, entries);
+        }
+    }
+
+    private static string CreateSearchText(ExplorerItem item)
+    {
+        return string.Join('\n', item.Name, item.OutputRelativePath, item.SourcePath);
+    }
+
+    private void ApplySearch(string query)
+    {
+        string[] terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        List<ExplorerItem> results = _searchIndex
+            .Where(entry => terms.All(term => entry.SearchText.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .Select(entry => entry.Item)
+            .Distinct()
+            .ToList();
+
+        _isSearchMode = true;
+        ContentsList.SelectedItems.Clear();
+        ContentsList.ItemsSource = results;
+        EmptyStatePanel.Visibility = results.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (results.Count == 0)
+        {
+            SetStatus("SearchNoResults", query);
+        }
+        else
+        {
+            SetStatus("SearchResults", query, results.Count);
+            ContentsList.ScrollIntoView(results[0]);
+        }
+    }
+
+    private void ExitSearchMode()
+    {
+        if (!_isSearchMode)
+        {
+            return;
+        }
+
+        _isSearchMode = false;
+        if (_currentItem is null)
+        {
+            ContentsList.ItemsSource = null;
+            EmptyStatePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ContentsList.SelectedItems.Clear();
+        ContentsList.ItemsSource = _currentItem.Children;
+        EmptyStatePanel.Visibility = _currentItem.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SetFolderStatus(_currentItem);
+        if (_currentItem.Children.Count > 0)
+        {
+            ContentsList.ScrollIntoView(_currentItem.Children[0]);
+        }
+    }
+
+    private void ClearSearchText()
+    {
+        if (SearchTextBox.Text.Length == 0)
+        {
+            ExitSearchMode();
+            return;
+        }
+
+        SearchTextBox.Clear();
+    }
+
+    private void ClearSearchTextSilently()
+    {
+        _suppressSearchTextChanged = true;
+        SearchTextBox.Clear();
+        ClearSearchButton.IsEnabled = false;
+        _suppressSearchTextChanged = false;
+        _searchRequestVersion++;
+        _isSearchMode = false;
+    }
+
+    private void ResetSearchState(bool clearText)
+    {
+        _searchIndex.Clear();
+        _isSearchIndexReady = false;
+        _isSearchMode = false;
+        _searchRequestVersion++;
+        if (clearText)
+        {
+            ClearSearchTextSilently();
+        }
+    }
+
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
     {
         while (current is not null)
@@ -480,6 +673,9 @@ public partial class MainWindow : Window
         ContentsHeaderText.Text = T("Contents");
         EmptyStateText.Text = T("EmptyFolder");
         ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
+        SearchLabelText.Text = T("SearchLabel");
+        SearchTextBox.ToolTip = T("SearchTooltip");
+        ClearSearchButton.ToolTip = T("ClearSearch");
 
         if (_currentItem is null)
         {
@@ -590,6 +786,7 @@ public partial class MainWindow : Window
     private async Task LoadDirectoryAsync(string folder)
     {
         SetBusy(true);
+        ResetSearchState(clearText: true);
         HeaderText.Text = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         BreadcrumbPanel.Children.Clear();
         BreadcrumbPanel.Children.Add(new TextBlock { Text = folder, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
@@ -737,6 +934,7 @@ public partial class MainWindow : Window
         }
 
         _currentItem = item;
+        ClearSearchTextSilently();
         ContentsList.SelectedItem = null;
         ContentsList.ItemsSource = item.Children;
         EmptyStatePanel.Visibility = item.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -780,6 +978,8 @@ public partial class MainWindow : Window
         WorkProgress.IsIndeterminate = isBusy;
         BrowseFolderButton.IsEnabled = !isBusy;
         PackFolderButton.IsEnabled = !isBusy;
+        SearchTextBox.IsEnabled = !isBusy;
+        ClearSearchButton.IsEnabled = !isBusy && SearchTextBox.Text.Length > 0;
         ContentsList.IsEnabled = !isBusy;
         UpdateCommandState();
     }

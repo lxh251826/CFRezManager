@@ -124,6 +124,26 @@
                 </ComboBox>
             </StackPanel>
 
+            <StackPanel DockPanel.Dock="Right"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <TextBlock x:Name="SearchLabelText"
+                           Text="Search:"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"/>
+                <TextBox x:Name="SearchTextBox"
+                         Width="280"
+                         Padding="8,5"
+                         VerticalContentAlignment="Center"
+                         TextChanged="SearchTextBox_TextChanged"/>
+                <Button x:Name="ClearSearchButton"
+                        Content="X"
+                        Click="ClearSearchButton_Click"
+                        IsEnabled="False"
+                        Padding="10,5"
+                        Margin="6,0,0,0"/>
+            </StackPanel>
+
             <TextBlock x:Name="HeaderText"
                        Text="选择一个文件夹扫描 REZ 资源包"
                        Visibility="Collapsed"
