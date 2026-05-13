@@ -18,10 +18,18 @@ public partial class MainWindow : Window
         English
     }
 
+    private enum FolderDialogKind
+    {
+        RezSource,
+        PackSource,
+        Output
+    }
+
     private ExplorerItem? _rootItem;
     private ExplorerItem? _currentItem;
     private readonly List<ExplorerItem> _backHistory = new();
     private readonly List<ExplorerItem> _forwardHistory = new();
+    private readonly UserSettings _settings;
     private AppLanguage _language = AppLanguage.Chinese;
     private string _statusKey = "Ready";
     private object[] _statusArgs = [];
@@ -75,8 +83,10 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        _settings = UserSettings.Load();
+        _language = ParseLanguage(_settings.Language);
         InitializeComponent();
-        LanguageComboBox.SelectedIndex = 0;
+        LanguageComboBox.SelectedIndex = _language == AppLanguage.English ? 1 : 0;
         ApplyLanguage();
         LoadEmptyStateImage();
         Loaded += MainWindow_Loaded;
@@ -86,7 +96,7 @@ public partial class MainWindow : Window
     {
         Loaded -= MainWindow_Loaded;
 
-        string? folder = SelectFolder(T("SelectRezFolderDescription"), null);
+        string? folder = SelectFolder(T("SelectRezFolderDescription"), FolderDialogKind.RezSource);
         if (folder is not null)
         {
             await LoadDirectoryAsync(folder);
@@ -99,7 +109,7 @@ public partial class MainWindow : Window
 
     private async void BrowseFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        string? folder = SelectFolder(T("SelectRezFolderDescription"), _selectedDirectory);
+        string? folder = SelectFolder(T("SelectRezFolderDescription"), FolderDialogKind.RezSource, _selectedDirectory);
         if (folder is not null)
         {
             await LoadDirectoryAsync(folder);
@@ -108,7 +118,7 @@ public partial class MainWindow : Window
 
     private async void PackFolderButton_Click(object sender, RoutedEventArgs e)
     {
-        string? sourceDirectory = SelectFolder(T("SelectPackFolderDescription"), _selectedDirectory);
+        string? sourceDirectory = SelectFolder(T("SelectPackFolderDescription"), FolderDialogKind.PackSource, _selectedDirectory);
         if (sourceDirectory is null)
         {
             return;
@@ -174,7 +184,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        string? outputDirectory = SelectFolder(T("SelectOutputFolderDescription"), _selectedDirectory);
+        string? outputDirectory = SelectFolder(T("SelectOutputFolderDescription"), FolderDialogKind.Output, _selectedDirectory);
         if (outputDirectory is null)
         {
             return;
@@ -287,6 +297,8 @@ public partial class MainWindow : Window
         _language = string.Equals(tag, "en", StringComparison.OrdinalIgnoreCase)
             ? AppLanguage.English
             : AppLanguage.Chinese;
+        _settings.Language = ToLanguageCode(_language);
+        _settings.Save();
         ApplyLanguage();
     }
 
@@ -325,6 +337,18 @@ public partial class MainWindow : Window
         }
 
         RefreshStatusText();
+    }
+
+    private static AppLanguage ParseLanguage(string? value)
+    {
+        return string.Equals(value, "en", StringComparison.OrdinalIgnoreCase)
+            ? AppLanguage.English
+            : AppLanguage.Chinese;
+    }
+
+    private static string ToLanguageCode(AppLanguage language)
+    {
+        return language == AppLanguage.English ? "en" : "zh";
     }
 
     private string T(string key)
@@ -617,16 +641,22 @@ public partial class MainWindow : Window
         ExtractAllButton.IsEnabled = !_isBusy && _rootItem is not null && (_archiveCount > 0 || _extractableFileCount > 0);
     }
 
-    private static string? SelectFolder(string description, string? initialDirectory)
+    private string? SelectFolder(string description, FolderDialogKind kind, string? fallbackDirectory = null)
     {
         using var dialog = new Forms.FolderBrowserDialog
         {
             Description = description,
             UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(initialDirectory) ? initialDirectory : Environment.CurrentDirectory
+            SelectedPath = ResolveInitialDirectory(GetRememberedDirectory(kind), fallbackDirectory)
         };
 
-        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.SelectedPath : null;
+        if (dialog.ShowDialog() != Forms.DialogResult.OK)
+        {
+            return null;
+        }
+
+        RememberDirectory(kind, dialog.SelectedPath);
+        return dialog.SelectedPath;
     }
 
     private string? SelectRezOutputFile(string sourceDirectory)
@@ -644,11 +674,77 @@ public partial class MainWindow : Window
             DefaultExt = "rez",
             AddExtension = true,
             OverwritePrompt = true,
-            InitialDirectory = Directory.Exists(sourceDirectory) ? sourceDirectory : Environment.CurrentDirectory,
+            InitialDirectory = ResolveInitialDirectory(_settings.LastSaveDirectory, sourceDirectory),
             FileName = $"{sourceName}.rez"
         };
 
-        return dialog.ShowDialog() == Forms.DialogResult.OK ? dialog.FileName : null;
+        if (dialog.ShowDialog() != Forms.DialogResult.OK)
+        {
+            return null;
+        }
+
+        string? outputDirectory = Path.GetDirectoryName(dialog.FileName);
+        if (!string.IsNullOrEmpty(outputDirectory))
+        {
+            _settings.LastSaveDirectory = outputDirectory;
+            _settings.LastDirectory = outputDirectory;
+            _settings.Save();
+        }
+
+        return dialog.FileName;
+    }
+
+    private string GetRememberedDirectory(FolderDialogKind kind)
+    {
+        return kind switch
+        {
+            FolderDialogKind.RezSource => _settings.LastRezDirectory,
+            FolderDialogKind.PackSource => _settings.LastPackDirectory,
+            FolderDialogKind.Output => _settings.LastOutputDirectory,
+            _ => string.Empty
+        };
+    }
+
+    private void RememberDirectory(FolderDialogKind kind, string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        switch (kind)
+        {
+            case FolderDialogKind.RezSource:
+                _settings.LastRezDirectory = directory;
+                break;
+            case FolderDialogKind.PackSource:
+                _settings.LastPackDirectory = directory;
+                break;
+            case FolderDialogKind.Output:
+                _settings.LastOutputDirectory = directory;
+                break;
+        }
+
+        _settings.LastDirectory = directory;
+        _settings.Save();
+    }
+
+    private string ResolveInitialDirectory(params string?[] candidates)
+    {
+        foreach (string? candidate in candidates)
+        {
+            if (Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        if (Directory.Exists(_settings.LastDirectory))
+        {
+            return _settings.LastDirectory;
+        }
+
+        return Environment.CurrentDirectory;
     }
 
     private static IEnumerable<string> SafeEnumerateDirectories(string folder)
