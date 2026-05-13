@@ -27,7 +27,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         "bmp",
         "gif",
         "tif",
-        "tiff"
+        "tiff",
+        "dtx"
     };
 
     private readonly object _thumbnailSync = new();
@@ -247,6 +248,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             {
                 source.Position = ArchiveFile.DataOffset;
                 source.ReadExactly(data);
+            }
+
+            if (string.Equals(ArchiveFile.Extension, "dtx", StringComparison.OrdinalIgnoreCase))
+            {
+                return DtxThumbnailDecoder.TryDecode(data);
             }
 
             using var stream = new MemoryStream(data);
