@@ -12,6 +12,38 @@ namespace CFRezManager;
 
 public partial class MainWindow : Window
 {
+    public static readonly DependencyProperty TileItemWidthProperty =
+        DependencyProperty.Register(nameof(TileItemWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(136.0));
+
+    public static readonly DependencyProperty TileItemHeightProperty =
+        DependencyProperty.Register(nameof(TileItemHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(128.0));
+
+    public static readonly DependencyProperty TileCellWidthProperty =
+        DependencyProperty.Register(nameof(TileCellWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(148.0));
+
+    public static readonly DependencyProperty TileCellHeightProperty =
+        DependencyProperty.Register(nameof(TileCellHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(140.0));
+
+    public static readonly DependencyProperty TileIconSizeProperty =
+        DependencyProperty.Register(nameof(TileIconSize), typeof(double), typeof(MainWindow), new PropertyMetadata(61.0));
+
+    public static readonly DependencyProperty TileIconRowHeightProperty =
+        DependencyProperty.Register(nameof(TileIconRowHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(71.0));
+
+    public static readonly DependencyProperty TileFileIconWidthProperty =
+        DependencyProperty.Register(nameof(TileFileIconWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(50.0));
+
+    public static readonly DependencyProperty TileFilePageWidthProperty =
+        DependencyProperty.Register(nameof(TileFilePageWidth), typeof(double), typeof(MainWindow), new PropertyMetadata(42.0));
+
+    public static readonly DependencyProperty TileFilePageHeightProperty =
+        DependencyProperty.Register(nameof(TileFilePageHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(54.0));
+
+    public static readonly DependencyProperty TileNameMaxHeightProperty =
+        DependencyProperty.Register(nameof(TileNameMaxHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(44.0));
+
+    private const double ListViewThreshold = 35.0;
+
     private enum AppLanguage
     {
         Chinese,
@@ -41,6 +73,7 @@ public partial class MainWindow : Window
     private int _extractableFileCount;
     private bool _isBusy;
     private bool _isDragSelecting;
+    private bool _isListViewMode;
     private bool _isSearchIndexReady;
     private bool _isSearchMode;
     private bool _suppressSearchTextChanged;
@@ -48,6 +81,66 @@ public partial class MainWindow : Window
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
     private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
+
+    public double TileItemWidth
+    {
+        get => (double)GetValue(TileItemWidthProperty);
+        set => SetValue(TileItemWidthProperty, value);
+    }
+
+    public double TileItemHeight
+    {
+        get => (double)GetValue(TileItemHeightProperty);
+        set => SetValue(TileItemHeightProperty, value);
+    }
+
+    public double TileCellWidth
+    {
+        get => (double)GetValue(TileCellWidthProperty);
+        set => SetValue(TileCellWidthProperty, value);
+    }
+
+    public double TileCellHeight
+    {
+        get => (double)GetValue(TileCellHeightProperty);
+        set => SetValue(TileCellHeightProperty, value);
+    }
+
+    public double TileIconSize
+    {
+        get => (double)GetValue(TileIconSizeProperty);
+        set => SetValue(TileIconSizeProperty, value);
+    }
+
+    public double TileIconRowHeight
+    {
+        get => (double)GetValue(TileIconRowHeightProperty);
+        set => SetValue(TileIconRowHeightProperty, value);
+    }
+
+    public double TileFileIconWidth
+    {
+        get => (double)GetValue(TileFileIconWidthProperty);
+        set => SetValue(TileFileIconWidthProperty, value);
+    }
+
+    public double TileFilePageWidth
+    {
+        get => (double)GetValue(TileFilePageWidthProperty);
+        set => SetValue(TileFilePageWidthProperty, value);
+    }
+
+    public double TileFilePageHeight
+    {
+        get => (double)GetValue(TileFilePageHeightProperty);
+        set => SetValue(TileFilePageHeightProperty, value);
+    }
+
+    public double TileNameMaxHeight
+    {
+        get => (double)GetValue(TileNameMaxHeightProperty);
+        set => SetValue(TileNameMaxHeightProperty, value);
+    }
 
     private static readonly IReadOnlyDictionary<string, (string Chinese, string English)> Texts =
         new Dictionary<string, (string Chinese, string English)>
@@ -60,6 +153,8 @@ public partial class MainWindow : Window
             ["SearchLabel"] = ("搜索:", "Search:"),
             ["SearchTooltip"] = ("输入关键字快速搜索已扫描的文件和目录", "Type keywords to quickly search indexed files and folders"),
             ["ClearSearch"] = ("清除搜索", "Clear search"),
+            ["ViewSizeLabel"] = ("大小", "Size"),
+            ["ViewSizeTooltip"] = ("缩小切换到列表，放大切换到平铺图标", "Shrink for list view, enlarge for tile view"),
             ["BuildingSearchIndex"] = ("正在建立搜索索引...", "Building search index..."),
             ["SearchIndexReady"] = ("搜索索引已就绪，共 {0:N0} 项", "Search index ready, {0:N0} items"),
             ["SearchResults"] = ("搜索 “{0}”：找到 {1:N0} 项", "Search \"{0}\": {1:N0} items found"),
@@ -104,6 +199,7 @@ public partial class MainWindow : Window
         _language = ParseLanguage(_settings.Language);
         InitializeComponent();
         LanguageComboBox.SelectedIndex = _language == AppLanguage.English ? 1 : 0;
+        ApplyViewSize(ViewSizeSlider.Value);
         ApplyLanguage();
         LoadEmptyStateImage();
         Loaded += MainWindow_Loaded;
@@ -417,6 +513,16 @@ public partial class MainWindow : Window
         ClearSearchText();
     }
 
+    private void ViewSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsInitialized)
+        {
+            return;
+        }
+
+        ApplyViewSize(e.NewValue);
+    }
+
     private List<ExplorerItem> GetSelectedExplorerItems()
     {
         return ContentsList.SelectedItems.OfType<ExplorerItem>().ToList();
@@ -507,6 +613,46 @@ public partial class MainWindow : Window
         {
             ContentsList.ReleaseMouseCapture();
         }
+    }
+
+    private void ApplyViewSize(double value)
+    {
+        bool useListView = value < ListViewThreshold;
+        if (useListView)
+        {
+            if (!_isListViewMode)
+            {
+                _isListViewMode = true;
+                ContentsList.ItemTemplate = (DataTemplate)FindResource("ExplorerListTemplate");
+                ContentsList.ItemContainerStyle = (Style)FindResource("ExplorerListItemStyle");
+                ContentsList.ItemsPanel = (ItemsPanelTemplate)FindResource("ExplorerListPanelTemplate");
+            }
+
+            ContentsList.InvalidateMeasure();
+            return;
+        }
+
+        double factor = Math.Clamp((value - ListViewThreshold) / (100.0 - ListViewThreshold), 0, 1);
+        TileItemWidth = 112 + (44 * factor);
+        TileItemHeight = 104 + (44 * factor);
+        TileCellWidth = TileItemWidth + 12;
+        TileCellHeight = TileItemHeight + 12;
+        TileIconSize = 48 + (24 * factor);
+        TileIconRowHeight = TileIconSize + 10;
+        TileFileIconWidth = TileIconSize * 0.82;
+        TileFilePageWidth = TileIconSize * 0.68;
+        TileFilePageHeight = TileIconSize * 0.88;
+        TileNameMaxHeight = 34 + (18 * factor);
+
+        if (_isListViewMode)
+        {
+            _isListViewMode = false;
+            ContentsList.ItemTemplate = (DataTemplate)FindResource("ExplorerIconTemplate");
+            ContentsList.ItemContainerStyle = (Style)FindResource("ExplorerTileItemStyle");
+            ContentsList.ItemsPanel = (ItemsPanelTemplate)FindResource("ExplorerTilePanelTemplate");
+        }
+
+        ContentsList.InvalidateMeasure();
     }
 
     private async Task EnsureSearchIndexAsync()
@@ -676,6 +822,8 @@ public partial class MainWindow : Window
         SearchLabelText.Text = T("SearchLabel");
         SearchTextBox.ToolTip = T("SearchTooltip");
         ClearSearchButton.ToolTip = T("ClearSearch");
+        ViewSizeLabelText.Text = T("ViewSizeLabel");
+        ViewSizeSlider.ToolTip = T("ViewSizeTooltip");
 
         if (_currentItem is null)
         {

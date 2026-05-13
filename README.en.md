@@ -35,6 +35,8 @@ The app remembers the selected language and the folders used for scanning, packi
 
 The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly, similar to Everything. Separate multiple keywords with spaces to require all terms to match.
 
+Use the bottom-right `Size` slider to switch views: smaller values use a list view with path and size details, while larger values return to the tiled icon view. Hover files, folders, or REZ items to see available metadata such as type, path, size, source, MD5, and data offset.
+
 Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.
