@@ -1,0 +1,212 @@
+<Window x:Class="CFRezManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:local="clr-namespace:CFRezManager"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="CF Rez Manager" Height="760" Width="1180" MinHeight="560" MinWidth="900"
+        PreviewMouseDown="Window_PreviewMouseDown">
+    <Window.Resources>
+        <Style x:Key="BreadcrumbButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="ExplorerItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Width" Value="132"/>
+            <Setter Property="Height" Value="126"/>
+            <Setter Property="Margin" Value="6"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+        </Style>
+
+        <DataTemplate x:Key="ExplorerIconTemplate">
+            <Grid ToolTip="{Binding LocationText}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="72"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Image x:Name="FolderIcon"
+                       Source="{Binding IconSource}"
+                       Width="64"
+                       Height="64"
+                       Stretch="Uniform"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+
+                <Grid x:Name="FileIcon"
+                      Width="52"
+                      Height="64"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Visibility="Collapsed">
+                    <Border Width="44"
+                            Height="56"
+                            Background="#FFFFFF"
+                            BorderBrush="#BFC6D1"
+                            BorderThickness="1"
+                            CornerRadius="2">
+                        <TextBlock Text="FILE"
+                                   Foreground="#6B7280"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <Border Width="14"
+                            Height="14"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,4,6,0"
+                            Background="#E5E7EB"
+                            BorderBrush="#BFC6D1"
+                            BorderThickness="0,0,1,1"/>
+                </Grid>
+
+                <TextBlock Grid.Row="1"
+                           Text="{Binding Name}"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis"
+                           MaxHeight="42"
+                           LineHeight="16"
+                           FontSize="12"/>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsContainer}" Value="False">
+                    <Setter TargetName="FolderIcon" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="FileIcon" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.Row="0" LastChildFill="True" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                <Button x:Name="BrowseFolderButton"
+                        Content="Select Folder..."
+                        Click="BrowseFolderButton_Click"
+                        Padding="14,7"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="ExtractAllButton"
+                        Content="Extract All..."
+                        Click="ExtractAllButton_Click"
+                        IsEnabled="False"
+                        Padding="14,7"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="PackFolderButton"
+                        Content="Pack Folder..."
+                        Click="PackFolderButton_Click"
+                        Padding="14,7"/>
+            </StackPanel>
+
+            <TextBlock x:Name="HeaderText"
+                       Text="Choose a folder to scan REZ archives"
+                       Visibility="Collapsed"
+                       VerticalAlignment="Center"
+                       FontSize="17"
+                       FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
+
+        <Border Grid.Row="1"
+                BorderBrush="#D7DCE2"
+                BorderThickness="1"
+                Background="#F8FAFC"
+                Margin="0,0,0,10">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="BreadcrumbPanel"
+                            Orientation="Horizontal"
+                            Margin="6,4"/>
+            </ScrollViewer>
+        </Border>
+
+        <Border Grid.Row="2" BorderBrush="#D7DCE2" BorderThickness="1">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Contents"
+                           FontWeight="SemiBold"
+                           Padding="10,8"
+                           Background="#F5F7FA"/>
+
+                <Grid>
+                    <ListBox x:Name="ContentsList"
+                             MouseDoubleClick="ContentsList_MouseDoubleClick"
+                             PreviewMouseRightButtonDown="ContentsList_PreviewMouseRightButtonDown"
+                             BorderThickness="0"
+                             ItemTemplate="{StaticResource ExplorerIconTemplate}"
+                             ItemContainerStyle="{StaticResource ExplorerItemStyle}"
+                             SelectionMode="Extended"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             ScrollViewer.CanContentScroll="True"
+                             ScrollViewer.IsDeferredScrollingEnabled="False"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ContextMenu>
+                            <ContextMenu Opened="ContentsContextMenu_Opened">
+                                <MenuItem x:Name="ExtractSelectedMenuItem"
+                                          Header="Extract Selected..."
+                                          Click="ExtractSelectedMenuItem_Click"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <local:VirtualizingWrapPanel ItemWidth="144"
+                                                             ItemHeight="138"
+                                                             CacheRows="2"/>
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
+
+                    <StackPanel x:Name="EmptyStatePanel"
+                                Visibility="Collapsed"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <Image x:Name="EmptyStateImage"
+                               Width="112"
+                               Height="112"
+                               Stretch="Uniform"
+                               HorizontalAlignment="Center"/>
+                        <TextBlock Text="&#x7A7A;&#x76EE;&#x5F55;"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,10,0,0"
+                                   FontSize="15"
+                                   Foreground="#6B7280"/>
+                    </StackPanel>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="0,8,0,0" LastChildFill="True">
+            <ProgressBar x:Name="WorkProgress"
+                         DockPanel.Dock="Right"
+                         Width="220"
+                         Height="8"
+                         Minimum="0"
+                         Maximum="100"
+                         Visibility="Collapsed"/>
+            <TextBlock x:Name="StatusText"
+                       Text="Ready"
+                       Foreground="#4B5563"
+                       VerticalAlignment="Center"/>
+        </DockPanel>
+    </Grid>
+</Window>

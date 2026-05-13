@@ -1,0 +1,20 @@
+# Visual Studio / .NET build output
+.vs/
+bin/
+obj/
+
+# User-local IDE state
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Local REZ samples and extracted game data
+Pak-CF/
+Extracted/
+Output/
