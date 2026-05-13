@@ -192,6 +192,10 @@ public partial class MainWindow : Window
             ["ExtractThisItem"] = ("导出此项...", "Extract This Item..."),
             ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
             ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
+            ["LoadingPreview"] = ("正在打开预览 {0}...", "Opening preview {0}..."),
+            ["PreviewOpened"] = ("已打开预览 {0}", "Opened preview {0}"),
+            ["PreviewUnsupported"] = ("无法预览 {0}", "Cannot preview {0}"),
+            ["PreviewFailed"] = ("预览失败", "Preview failed"),
             ["ErrorStatus"] = ("{0}: {1}", "{0}: {1}")
         };
 
@@ -358,9 +362,51 @@ public partial class MainWindow : Window
 
     private async void ContentsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is ExplorerItem item && item.IsContainer)
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is not ExplorerItem item)
+        {
+            return;
+        }
+
+        if (item.IsContainer)
         {
             await ShowFolderAsync(item);
+        }
+        else if (item.IsImagePreviewCandidate)
+        {
+            await ShowImagePreviewAsync(item);
+        }
+    }
+
+    private async Task ShowImagePreviewAsync(ExplorerItem item)
+    {
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingPreview", item.Name);
+
+        try
+        {
+            ImageSource? imageSource = await item.LoadPreviewImageAsync();
+            if (imageSource is null)
+            {
+                string message = FormatText("PreviewUnsupported", item.Name);
+                SetStatusText(message);
+                System.Windows.MessageBox.Show(this, message, T("PreviewFailed"), MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var preview = new ImagePreviewWindow(item.Name, imageSource)
+            {
+                Owner = this
+            };
+            preview.Show();
+            SetStatus("PreviewOpened", item.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
         }
     }
 

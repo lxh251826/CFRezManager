@@ -38,6 +38,7 @@ The search box builds an in-memory index the first time you type, then filters s
 Use the bottom-right `Size` slider to switch views: smaller values use a list view with path and size details, while larger values return to the tiled icon view. Hover files, folders, or REZ items to see available metadata such as type, path, size, source, MD5, and data offset.
 
 PNG, JPG, BMP, GIF, TIFF, and DTX image files inside REZ archives lazy-load thumbnails when they become visible. Files that cannot be decoded still use the normal file icon.
+Double-click a decodable image file to open an original-size preview window. The image is not stretched; if it is larger than the screen, use the preview window scroll bars.
 
 Mouse shortcuts:
 

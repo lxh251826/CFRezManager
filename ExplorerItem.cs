@@ -19,6 +19,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     private static readonly ImageSource? FolderIconImage = LoadFolderIcon();
     private static readonly SemaphoreSlim ThumbnailSemaphore = new(3);
     private const int MaxThumbnailBytes = 32 * 1024 * 1024;
+    private const int MaxPreviewBytes = 128 * 1024 * 1024;
     private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "png",
@@ -51,6 +52,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     public ImageSource? IconSource => IsContainer ? FolderIconImage : null;
 
     public bool IsThumbnailCandidate => CanLoadThumbnail();
+
+    public bool IsImagePreviewCandidate => CanLoadThumbnail();
 
     public bool HasThumbnail => _thumbnailSource is not null;
 
@@ -201,6 +204,13 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         }
     }
 
+    public Task<ImageSource?> LoadPreviewImageAsync()
+    {
+        return IsImagePreviewCandidate
+            ? Task.Run(LoadRezPreviewImage)
+            : Task.FromResult<ImageSource?>(null);
+    }
+
     private async Task LoadThumbnailCoreAsync()
     {
         await ThumbnailSemaphore.WaitAsync();
@@ -235,42 +245,84 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     {
         try
         {
-            if (Archive is null ||
-                ArchiveFile is null ||
-                ArchiveFile.Size <= 0 ||
-                ArchiveFile.Size > MaxThumbnailBytes)
+            string? extension = ArchiveFile?.Extension;
+            byte[]? data = ReadArchiveFileBytes(MaxThumbnailBytes);
+            if (data is null || extension is null)
             {
                 return null;
             }
 
-            byte[] data = new byte[ArchiveFile.Size];
-            using (FileStream source = File.OpenRead(Archive.FilePath))
-            {
-                source.Position = ArchiveFile.DataOffset;
-                source.ReadExactly(data);
-            }
-
-            if (string.Equals(ArchiveFile.Extension, "dtx", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
             {
                 return DtxThumbnailDecoder.TryDecode(data);
             }
 
-            using var stream = new MemoryStream(data);
-            var image = new BitmapImage();
-            image.BeginInit();
-            image.CacheOption = BitmapCacheOption.OnLoad;
-            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-            image.DecodePixelWidth = 192;
-            image.DecodePixelHeight = 192;
-            image.StreamSource = stream;
-            image.EndInit();
-            image.Freeze();
-            return image;
+            return LoadBitmapImage(data, decodeThumbnail: true);
         }
         catch
         {
             return null;
         }
+    }
+
+    private ImageSource? LoadRezPreviewImage()
+    {
+        try
+        {
+            string? extension = ArchiveFile?.Extension;
+            byte[]? data = ReadArchiveFileBytes(MaxPreviewBytes);
+            if (data is null || extension is null)
+            {
+                return null;
+            }
+
+            if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
+            {
+                return DtxThumbnailDecoder.TryDecodeOriginal(data);
+            }
+
+            return LoadBitmapImage(data, decodeThumbnail: false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private byte[]? ReadArchiveFileBytes(int maxBytes)
+    {
+        if (Archive is null ||
+            ArchiveFile is null ||
+            ArchiveFile.Size <= 0 ||
+            ArchiveFile.Size > maxBytes)
+        {
+            return null;
+        }
+
+        byte[] data = new byte[ArchiveFile.Size];
+        using FileStream source = File.OpenRead(Archive.FilePath);
+        source.Position = ArchiveFile.DataOffset;
+        source.ReadExactly(data);
+        return data;
+    }
+
+    private static ImageSource LoadBitmapImage(byte[] data, bool decodeThumbnail)
+    {
+        using var stream = new MemoryStream(data);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+        if (decodeThumbnail)
+        {
+            image.DecodePixelWidth = 192;
+            image.DecodePixelHeight = 192;
+        }
+
+        image.StreamSource = stream;
+        image.EndInit();
+        image.Freeze();
+        return image;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

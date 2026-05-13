@@ -44,6 +44,16 @@ internal static class DtxThumbnailDecoder
 
     public static ImageSource? TryDecode(byte[] data)
     {
+        return TryDecode(data, ThumbnailMaxSide);
+    }
+
+    public static ImageSource? TryDecodeOriginal(byte[] data)
+    {
+        return TryDecode(data, maxSide: null);
+    }
+
+    private static ImageSource? TryDecode(byte[] data, int? maxSide)
+    {
         if (!TryReadHeader(data, out DtxHeader header) ||
             !IsSafeImageSize(header.Width, header.Height))
         {
@@ -62,7 +72,7 @@ internal static class DtxThumbnailDecoder
             _ => null
         };
 
-        return pixels is null ? null : CreateImage(header.Width, header.Height, pixels);
+        return pixels is null ? null : CreateImage(header.Width, header.Height, pixels, maxSide);
     }
 
     private static bool TryReadHeader(byte[] data, out DtxHeader header)
@@ -442,7 +452,7 @@ internal static class DtxThumbnailDecoder
         target[targetOffset + 3] = alpha;
     }
 
-    private static ImageSource CreateImage(int width, int height, byte[] pixels)
+    private static ImageSource CreateImage(int width, int height, byte[] pixels, int? maxSide)
     {
         BitmapSource source = BitmapSource.Create(
             width,
@@ -455,7 +465,12 @@ internal static class DtxThumbnailDecoder
             width * 4);
         source.Freeze();
 
-        double scale = Math.Min(1.0, (double)ThumbnailMaxSide / Math.Max(width, height));
+        if (maxSide is null)
+        {
+            return source;
+        }
+
+        double scale = Math.Min(1.0, (double)maxSide.Value / Math.Max(width, height));
         if (scale >= 1.0)
         {
             return source;
