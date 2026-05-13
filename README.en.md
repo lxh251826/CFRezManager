@@ -37,6 +37,7 @@ Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.
 - Mouse forward button: go to the next viewed location.
+- Hold the left mouse button and drag: box-select visible files or folders. Hold `Ctrl` to toggle selection, or `Shift` to add to the current selection.
 
 ## Extract Files
 

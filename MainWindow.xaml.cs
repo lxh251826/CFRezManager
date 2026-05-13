@@ -30,13 +30,16 @@ public partial class MainWindow : Window
     private readonly List<ExplorerItem> _backHistory = new();
     private readonly List<ExplorerItem> _forwardHistory = new();
     private readonly UserSettings _settings;
+    private readonly HashSet<ExplorerItem> _dragInitialSelection = new();
     private AppLanguage _language = AppLanguage.Chinese;
     private string _statusKey = "Ready";
     private object[] _statusArgs = [];
     private string _selectedDirectory = string.Empty;
+    private System.Windows.Point? _dragStartPoint;
     private int _archiveCount;
     private int _extractableFileCount;
     private bool _isBusy;
+    private bool _isDragSelecting;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
 
@@ -262,6 +265,66 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ContentsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_isBusy ||
+            e.ChangedButton != MouseButton.Left ||
+            FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(e.OriginalSource as DependencyObject) is not null)
+        {
+            return;
+        }
+
+        _dragStartPoint = e.GetPosition(SelectionOverlay);
+        _dragInitialSelection.Clear();
+        foreach (ExplorerItem item in ContentsList.SelectedItems.OfType<ExplorerItem>())
+        {
+            _dragInitialSelection.Add(item);
+        }
+    }
+
+    private void ContentsList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_isBusy || _dragStartPoint is null || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        System.Windows.Point currentPoint = e.GetPosition(SelectionOverlay);
+        if (!_isDragSelecting)
+        {
+            double horizontalMove = Math.Abs(currentPoint.X - _dragStartPoint.Value.X);
+            double verticalMove = Math.Abs(currentPoint.Y - _dragStartPoint.Value.Y);
+            if (horizontalMove < SystemParameters.MinimumHorizontalDragDistance &&
+                verticalMove < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            _isDragSelecting = true;
+            SelectionBox.Visibility = Visibility.Visible;
+            ContentsList.CaptureMouse();
+        }
+
+        UpdateSelectionBox(currentPoint);
+        UpdateDragSelection(GetSelectionRect(currentPoint));
+        e.Handled = true;
+    }
+
+    private void ContentsList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isDragSelecting)
+        {
+            e.Handled = true;
+        }
+
+        EndDragSelection();
+    }
+
+    private void ContentsList_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        EndDragSelection();
+    }
+
     private void ContentsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } listBoxItem)
@@ -305,6 +368,93 @@ public partial class MainWindow : Window
     private List<ExplorerItem> GetSelectedExplorerItems()
     {
         return ContentsList.SelectedItems.OfType<ExplorerItem>().ToList();
+    }
+
+    private void UpdateSelectionBox(System.Windows.Point currentPoint)
+    {
+        Rect rect = GetSelectionRect(currentPoint);
+        Canvas.SetLeft(SelectionBox, rect.Left);
+        Canvas.SetTop(SelectionBox, rect.Top);
+        SelectionBox.Width = rect.Width;
+        SelectionBox.Height = rect.Height;
+    }
+
+    private Rect GetSelectionRect(System.Windows.Point currentPoint)
+    {
+        System.Windows.Point startPoint = _dragStartPoint ?? currentPoint;
+        return new Rect(startPoint, currentPoint);
+    }
+
+    private void UpdateDragSelection(Rect selectionRect)
+    {
+        var hitItems = new HashSet<ExplorerItem>();
+        foreach (object item in ContentsList.Items)
+        {
+            if (ContentsList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container ||
+                container.DataContext is not ExplorerItem explorerItem ||
+                !container.IsVisible)
+            {
+                continue;
+            }
+
+            Rect itemRect = container
+                .TransformToVisual(SelectionOverlay)
+                .TransformBounds(new Rect(new System.Windows.Size(container.ActualWidth, container.ActualHeight)));
+            if (selectionRect.IntersectsWith(itemRect))
+            {
+                hitItems.Add(explorerItem);
+            }
+        }
+
+        IEnumerable<ExplorerItem> selectedItems;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if ((modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            var toggledSelection = new HashSet<ExplorerItem>(_dragInitialSelection);
+            foreach (ExplorerItem item in hitItems)
+            {
+                if (!toggledSelection.Add(item))
+                {
+                    toggledSelection.Remove(item);
+                }
+            }
+
+            selectedItems = toggledSelection;
+        }
+        else if ((modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            var appendedSelection = new HashSet<ExplorerItem>(_dragInitialSelection);
+            appendedSelection.UnionWith(hitItems);
+            selectedItems = appendedSelection;
+        }
+        else
+        {
+            selectedItems = hitItems;
+        }
+
+        ApplySelectedItems(selectedItems);
+    }
+
+    private void ApplySelectedItems(IEnumerable<ExplorerItem> selectedItems)
+    {
+        var selectedSet = selectedItems.ToHashSet();
+        ContentsList.SelectedItems.Clear();
+        foreach (ExplorerItem item in selectedSet)
+        {
+            ContentsList.SelectedItems.Add(item);
+        }
+    }
+
+    private void EndDragSelection()
+    {
+        _dragStartPoint = null;
+        _dragInitialSelection.Clear();
+        _isDragSelecting = false;
+        SelectionBox.Visibility = Visibility.Collapsed;
+        if (ContentsList.IsMouseCaptured)
+        {
+            ContentsList.ReleaseMouseCapture();
+        }
     }
 
     private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject

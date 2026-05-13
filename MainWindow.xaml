@@ -158,7 +158,11 @@
                 <Grid>
                     <ListBox x:Name="ContentsList"
                              MouseDoubleClick="ContentsList_MouseDoubleClick"
+                             PreviewMouseLeftButtonDown="ContentsList_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="ContentsList_PreviewMouseMove"
+                             PreviewMouseLeftButtonUp="ContentsList_PreviewMouseLeftButtonUp"
                              PreviewMouseRightButtonDown="ContentsList_PreviewMouseRightButtonDown"
+                             LostMouseCapture="ContentsList_LostMouseCapture"
                              BorderThickness="0"
                              ItemTemplate="{StaticResource ExplorerIconTemplate}"
                              ItemContainerStyle="{StaticResource ExplorerItemStyle}"
@@ -184,6 +188,16 @@
                             </ItemsPanelTemplate>
                         </ListBox.ItemsPanel>
                     </ListBox>
+
+                    <Canvas x:Name="SelectionOverlay"
+                            IsHitTestVisible="False"
+                            ClipToBounds="True">
+                        <Border x:Name="SelectionBox"
+                                Background="#334F83D1"
+                                BorderBrush="#4F83D1"
+                                BorderThickness="1"
+                                Visibility="Collapsed"/>
+                    </Canvas>
 
                     <StackPanel x:Name="EmptyStatePanel"
                                 Visibility="Collapsed"
