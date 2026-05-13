@@ -314,7 +314,8 @@
                              VirtualizingPanel.IsVirtualizing="True"
                              VirtualizingPanel.VirtualizationMode="Recycling"
                              ScrollViewer.CanContentScroll="True"
-                             ScrollViewer.IsDeferredScrollingEnabled="False"
+                             ScrollViewer.IsDeferredScrollingEnabled="True"
+                             ScrollViewer.ScrollChanged="ContentsList_ScrollChanged"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              ItemsPanel="{StaticResource ExplorerTilePanelTemplate}">
