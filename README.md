@@ -1,76 +1,77 @@
 # CF Rez Manager
 
-CF Rez Manager is a Windows WPF tool for browsing, extracting, and packing LithTech/CF `.rez` archives.
+CF Rez Manager 是一个 Windows WPF 工具，用于浏览、解包和重新打包 LithTech / CF 的 `.rez` 资源包。
 
-## Requirements
+英文说明见 [README.en.md](README.en.md)。
+
+## 环境要求
 
 - Windows
-- .NET 8 SDK or runtime
+- .NET 8 SDK 或 .NET 8 Runtime
 
-## Build
+## 构建
 
 ```powershell
 dotnet build .\CFRezManager.csproj
 ```
 
-Run the app from Visual Studio, or start the built executable under:
+可以从 Visual Studio 运行，也可以启动构建后的程序：
 
 ```text
 bin\Debug\net8.0-windows\CFRezManager.exe
 ```
 
-## Browse REZ Archives
+## 浏览 REZ 资源包
 
-1. Start the program.
-2. Select a folder that contains `.rez` files.
-3. Double-click folders or REZ archives to enter them.
-4. Use the breadcrumb bar to jump back to parent locations.
+1. 启动程序。
+2. 选择包含 `.rez` 文件的文件夹。
+3. 双击普通文件夹、REZ 包或 REZ 内部目录进入。
+4. 使用顶部面包屑跳转回上级或任意父级位置。
 
-Mouse shortcuts:
+鼠标快捷操作：
 
-- Mouse back button: go to the previous viewed folder.
-- Mouse forward button: go to the next viewed folder.
+- 鼠标后退键：回到上一个浏览位置。
+- 鼠标前进键：前进到下一个浏览位置。
 
-## Extract Files
+## 解包文件
 
-Use `Extract All...` to export every file from all scanned REZ archives.
+点击 `Extract All...` 可以导出当前扫描范围内所有 REZ 包中的全部文件。
 
-To export only specific items:
+只导出指定文件或目录：
 
-1. Select one file, folder, REZ archive, or REZ internal directory.
-2. Use `Ctrl` or `Shift` to select multiple items when needed.
-3. Right-click the selected item or selection.
-4. Choose `Extract This Item...` or `Extract N Selected Items...`.
-5. Select an output folder.
+1. 选中一个文件、文件夹、REZ 包或 REZ 内部目录。
+2. 需要多选时，使用 `Ctrl` 或 `Shift` 选择多个项目。
+3. 右键选中项。
+4. 选择 `Extract This Item...` 或 `Extract N Selected Items...`。
+5. 选择输出文件夹。
 
-The exported files keep their REZ internal folder structure.
+导出的文件会保留 REZ 内部目录结构。
 
-## Pack A Folder Into REZ
+## 重新打包为 REZ
 
-Use `Pack Folder...` to create a new `.rez` archive from a normal Windows folder.
+点击 `Pack Folder...` 可以把一个普通 Windows 文件夹打包成新的 `.rez` 文件。
 
-1. Prepare a folder containing the files and subfolders you want inside the archive.
-2. Click `Pack Folder...`.
-3. Select the source folder.
-4. Choose the output `.rez` path.
+1. 准备一个文件夹，里面放入需要写入 REZ 的文件和子目录。
+2. 点击 `Pack Folder...`。
+3. 选择源文件夹。
+4. 选择输出 `.rez` 文件路径。
 
-The selected folder's contents become the root contents of the new REZ archive. Directory tables are encrypted with the REZ table algorithm, and file MD5 values are recalculated.
+被选中文件夹的内部内容会成为新 REZ 包的根目录内容。程序会加密目录表，并重新计算每个文件的 MD5。
 
-## Current Format Notes
+## 当前格式说明
 
-- File data is stored directly in the archive.
-- REZ directory tables are encrypted and decrypted by `RezCrypto`.
-- File MD5 values in the directory table match the raw file data MD5.
-- Packed file and directory names must be ASCII.
-- Packed files must have an extension from 1 to 4 characters.
-- Creating a new REZ from a folder preserves content and structure, but it does not attempt to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
+- 文件数据在 REZ 中直接存放。
+- REZ 目录表由 `RezCrypto` 负责解密和加密。
+- 目录表中的文件 MD5 与原始文件数据的 MD5 一致。
+- 重新打包时，文件名和目录名目前要求为 ASCII。
+- 重新打包时，文件扩展名需要为 1 到 4 个字符。
+- 从文件夹创建新 REZ 会保留内容和目录结构，但不会尝试复刻原包的字节级布局、偏移、时间戳或整包 MD5。
 
-## Project Files
+## 项目文件
 
-- `MainWindow.xaml` / `MainWindow.xaml.cs`: WPF interface and user actions.
-- `RezArchiveReader.cs`: Reads and extracts REZ archives.
-- `RezArchiveWriter.cs`: Packs a folder into a new REZ archive.
-- `RezCrypto.cs`: Directory table decode and encode logic.
-- `ExplorerItem.cs`: In-app folder/archive item model.
-- `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.
-
+- `MainWindow.xaml` / `MainWindow.xaml.cs`：WPF 界面和用户操作逻辑。
+- `RezArchiveReader.cs`：读取和解包 REZ。
+- `RezArchiveWriter.cs`：从文件夹打包生成新 REZ。
+- `RezCrypto.cs`：REZ 目录表解密和加密逻辑。
+- `ExplorerItem.cs`：程序内的文件夹和资源项模型。
+- `VirtualizingWrapPanel.cs`：虚拟化图标网格布局。
