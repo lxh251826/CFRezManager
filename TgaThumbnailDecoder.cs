@@ -316,15 +316,15 @@ internal static class TgaThumbnailDecoder
 
     private static byte[]? TryBuildRawPixelTga(byte[] data)
     {
-        return TryBuildLikelyTripletRawTga(data) ??
-               TryBuildRawPixelTga(data, data.Length, 4) ??
+        return TryBuildRawPixelTga(data, data.Length, 4) ??
                TryBuildRawPixelTga(data, data.Length, 3) ??
                TryBuildRawPixelTga(data, data.Length, 1) ??
                (data.Length > 44
                    ? TryBuildRawPixelTga(data, data.Length - 44, 4) ??
                      TryBuildRawPixelTga(data, data.Length - 44, 3) ??
                      TryBuildRawPixelTga(data, data.Length - 44, 1)
-                   : null);
+                   : null) ??
+               TryBuildLikelyTripletRawTga(data);
     }
 
     private static byte[]? TryBuildRawPixelTga(byte[] data, int pixelBytes, int sourcePixelBytes)
@@ -353,37 +353,59 @@ internal static class TgaThumbnailDecoder
     private static byte[]? TryBuildLikelyTripletRawTga(byte[] data)
     {
         const int sourcePixelBytes = 3;
-        if (data.Length < 2048 * 16 * sourcePixelBytes ||
-            data.Length % sourcePixelBytes != 0 ||
+        int availablePixelBytes = data.Length - (data.Length % sourcePixelBytes);
+        if (availablePixelBytes < 128 * 16 * sourcePixelBytes ||
             !HasConstantTripletChannels(data))
         {
             return null;
         }
 
-        int pixelCount = data.Length / sourcePixelBytes;
-        foreach (int width in new[] { 2048, 1024, 512, 256, 128 })
+        int pixelCount = availablePixelBytes / sourcePixelBytes;
+        if (!TryInferTripletRawDimensions(pixelCount, out int width, out int height))
         {
-            int height = pixelCount / width;
-            int leftoverPixels = pixelCount - (width * height);
-            if (height < 16 ||
-                leftoverPixels >= width * 3 / 4 ||
-                !IsSafeImageSize(width, height))
+            return null;
+        }
+
+        int pixelBytes = width * height * sourcePixelBytes;
+        var repaired = new byte[HeaderLength + pixelBytes];
+        repaired[2] = ImageTypeTrueColor;
+        WriteUInt16(repaired, 12, width);
+        WriteUInt16(repaired, 14, height);
+        repaired[16] = 24;
+        repaired[17] = 0x20;
+        data.AsSpan(0, pixelBytes).CopyTo(repaired.AsSpan(HeaderLength));
+        return repaired;
+    }
+
+    private static bool TryInferTripletRawDimensions(int pixelCount, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        double bestScore = double.MaxValue;
+
+        foreach (int candidateWidth in new[] { 2048, 1024, 512, 256, 128 })
+        {
+            int candidateHeight = pixelCount / candidateWidth;
+            if (candidateHeight < 16 || !IsSafeImageSize(candidateWidth, candidateHeight))
             {
                 continue;
             }
 
-            int pixelBytes = width * height * sourcePixelBytes;
-            var repaired = new byte[HeaderLength + pixelBytes];
-            repaired[2] = ImageTypeTrueColor;
-            WriteUInt16(repaired, 12, width);
-            WriteUInt16(repaired, 14, height);
-            repaired[16] = 24;
-            repaired[17] = 0x20;
-            data.AsSpan(0, pixelBytes).CopyTo(repaired.AsSpan(HeaderLength));
-            return repaired;
+            int leftoverPixels = pixelCount - (candidateWidth * candidateHeight);
+            double aspect = (double)candidateWidth / candidateHeight;
+            double aspectScore = Math.Abs(Math.Log(aspect / 4.0));
+            double leftoverScore = (double)leftoverPixels / candidateWidth;
+            double score = aspectScore + leftoverScore * 0.5;
+
+            if (score < bestScore)
+            {
+                width = candidateWidth;
+                height = candidateHeight;
+                bestScore = score;
+            }
         }
 
-        return null;
+        return width > 0 && height > 0;
     }
 
     private static bool HasConstantTripletChannels(byte[] data)
@@ -400,14 +422,12 @@ internal static class TgaThumbnailDecoder
             channel2[data[offset + 2]]++;
         }
 
-        int dominant0 = GetDominantCount(channel0, out int value0);
-        int dominant1 = GetDominantCount(channel1, out int value1);
-        int dominant2 = GetDominantCount(channel2, out int value2);
+        int dominant0 = GetDominantCount(channel0, out _);
+        int dominant1 = GetDominantCount(channel1, out _);
+        int dominant2 = GetDominantCount(channel2, out _);
         int threshold = tripletCount * 98 / 100;
 
-        return (dominant0 >= threshold && dominant1 >= threshold && value0 == value1 && dominant2 < threshold) ||
-               (dominant0 >= threshold && dominant2 >= threshold && value0 == value2 && dominant1 < threshold) ||
-               (dominant1 >= threshold && dominant2 >= threshold && value1 == value2 && dominant0 < threshold);
+        return dominant0 >= threshold || dominant1 >= threshold || dominant2 >= threshold;
     }
 
     private static int GetDominantCount(ReadOnlySpan<int> counts, out int value)

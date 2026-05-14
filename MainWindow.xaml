@@ -417,6 +417,10 @@
                              ItemsPanel="{StaticResource ExplorerTilePanelTemplate}">
                         <ListBox.ContextMenu>
                             <ContextMenu Opened="ContentsContextMenu_Opened">
+                                <MenuItem x:Name="OpenPreviewMenuItem"
+                                          Header="打开预览..."
+                                          Click="OpenPreviewMenuItem_Click"/>
+                                <Separator x:Name="PreviewMenuSeparator"/>
                                 <MenuItem x:Name="ExtractSelectedMenuItem"
                                           Header="导出选中项..."
                                           Click="ExtractSelectedMenuItem_Click"/>

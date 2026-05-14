@@ -1,4 +1,5 @@
 using System.IO;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Windows;
@@ -193,10 +194,25 @@ public partial class MainWindow : Window
             ["ExtractThisItem"] = ("导出此项...", "Extract This Item..."),
             ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
             ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
+            ["OpenPreview"] = ("打开预览...", "Open Preview..."),
+            ["OpenImagePreview"] = ("查看图片...", "View Image..."),
+            ["OpenModelPreview"] = ("查看模型...", "View Model..."),
+            ["OpenTextPreview"] = ("查看文本...", "View Text..."),
+            ["LoadingModelPreview"] = ("正在打开模型 {0}...", "Opening model {0}..."),
+            ["ModelPreviewOpened"] = ("已打开模型 {0}", "Opened model {0}"),
+            ["ModelPreviewUnsupported"] = ("无法解码模型 {0}", "Cannot decode model {0}"),
+            ["ModelPreviewFailed"] = ("模型预览失败", "Model preview failed"),
+            ["ModelPreviewInfo"] = ("{0}，{1:N0} 个网格，{2:N0} 个顶点，{3:N0} 个三角面，{4:N0} 字节 -> {5:N0} 字节", "{0}, {1:N0} meshes, {2:N0} vertices, {3:N0} triangles, {4:N0} bytes -> {5:N0} bytes"),
             ["LoadingPreview"] = ("正在打开预览 {0}...", "Opening preview {0}..."),
             ["PreviewOpened"] = ("已打开预览 {0}", "Opened preview {0}"),
             ["PreviewUnsupported"] = ("无法预览 {0}", "Cannot preview {0}"),
             ["PreviewFailed"] = ("预览失败", "Preview failed"),
+            ["LoadingTextPreview"] = ("正在打开文本 {0}...", "Opening text {0}..."),
+            ["TextPreviewOpened"] = ("已打开文本 {0}", "Opened text {0}"),
+            ["TextPreviewUnsupported"] = ("无法解码文本 {0}", "Cannot decode text {0}"),
+            ["TextPreviewFailed"] = ("文本预览失败", "Text preview failed"),
+            ["TextPreviewInfoEncoded"] = ("ENC / Base64 / {0}，{1:N0} 字节 -> {2:N0} 字节", "ENC / Base64 / {0}, {1:N0} bytes -> {2:N0} bytes"),
+            ["TextPreviewInfoPlain"] = ("{0}，{1:N0} 字节", "{0}, {1:N0} bytes"),
             ["PreviewDtxLzma"] = ("DTX - LZMA 压缩", "DTX - LZMA compressed"),
             ["PreviewDtxRaw"] = ("DTX - 未压缩", "DTX - uncompressed"),
             ["PreviewTgaLzma"] = ("TGA - LZMA 压缩", "TGA - LZMA compressed"),
@@ -304,6 +320,29 @@ public partial class MainWindow : Window
         await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label), preserveOutputRelativePaths: false);
     }
 
+    private async void OpenPreviewMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        if (selectedItems.Count != 1)
+        {
+            return;
+        }
+
+        ExplorerItem item = selectedItems[0];
+        if (item.IsModelPreviewCandidate)
+        {
+            await ShowModelPreviewAsync(item);
+        }
+        else if (item.IsTextPreviewCandidate)
+        {
+            await ShowTextPreviewAsync(item);
+        }
+        else if (item.IsImagePreviewCandidate)
+        {
+            await ShowImagePreviewAsync(item);
+        }
+    }
+
     private async Task ExtractItemsAsync(
         IReadOnlyCollection<ExplorerItem> items,
         string preparingMessage,
@@ -375,33 +414,44 @@ public partial class MainWindow : Window
         {
             await ShowFolderAsync(item);
         }
+        else if (item.IsModelPreviewCandidate)
+        {
+            await ShowModelPreviewAsync(item);
+        }
+        else if (item.IsTextPreviewCandidate)
+        {
+            await ShowTextPreviewAsync(item);
+        }
         else if (item.IsImagePreviewCandidate)
         {
             await ShowImagePreviewAsync(item);
         }
     }
 
+    private async Task ShowModelPreviewAsync(ExplorerItem item)
+    {
+        await ShowPreviewToolAsync(item);
+    }
+
+    private async Task ShowTextPreviewAsync(ExplorerItem item)
+    {
+        await ShowPreviewToolAsync(item);
+    }
+
     private async Task ShowImagePreviewAsync(ExplorerItem item)
+    {
+        await ShowPreviewToolAsync(item);
+    }
+
+    private async Task ShowPreviewToolAsync(ExplorerItem item)
     {
         SetBusy(true, keepSearchEnabled: true);
         SetStatus("LoadingPreview", item.Name);
 
         try
         {
-            IReadOnlyList<ImagePreviewFrame> frames = await item.LoadPreviewFramesAsync();
-            if (frames.Count == 0)
-            {
-                string message = FormatText("PreviewUnsupported", item.Name);
-                SetStatusText(message);
-                System.Windows.MessageBox.Show(this, message, T("PreviewFailed"), MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var preview = new ImagePreviewWindow(item.Name, frames, FormatImagePreviewInfo(item))
-            {
-                Owner = this
-            };
-            preview.Show();
+            string previewPath = await Task.Run(() => CreatePreviewToolFile(item));
+            StartPreviewTool(previewPath);
             SetStatus("PreviewOpened", item.Name);
         }
         catch (Exception ex)
@@ -414,18 +464,43 @@ public partial class MainWindow : Window
         }
     }
 
-    private string? FormatImagePreviewInfo(ExplorerItem item)
+    private static string CreatePreviewToolFile(ExplorerItem item)
     {
-        return item.ImageStorageKind switch
+        if (item.Archive is null || item.ArchiveFile is null)
         {
-            ImageStorageKind.DtxLzmaCompressed => T("PreviewDtxLzma"),
-            ImageStorageKind.DtxUncompressed => T("PreviewDtxRaw"),
-            ImageStorageKind.TgaLzmaCompressed => T("PreviewTgaLzma"),
-            ImageStorageKind.TgaUncompressed => T("PreviewTgaRaw"),
-            ImageStorageKind.TgaInsertedFooterHeader => T("PreviewTgaRepaired"),
-            ImageStorageKind.TgaRawPixels => T("PreviewTgaRawPixels"),
-            _ => null
+            throw new InvalidOperationException("Only files inside a REZ archive can be previewed here.");
+        }
+
+        string previewDirectory = Path.Combine(Path.GetTempPath(), "CFRezManager", "PreviewTool");
+        Directory.CreateDirectory(previewDirectory);
+        string fileName = $"{Guid.NewGuid():N}_{SanitizePathSegment(item.Name)}";
+        string previewPath = Path.Combine(previewDirectory, fileName);
+        RezArchiveReader.ExtractFile(item.Archive, item.ArchiveFile, previewPath);
+        return previewPath;
+    }
+
+    private static void StartPreviewTool(string filePath)
+    {
+        string executablePath = ResolvePreviewToolExecutable();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            UseShellExecute = false
         };
+        startInfo.ArgumentList.Add("--preview");
+        startInfo.ArgumentList.Add(filePath);
+        Process.Start(startInfo);
+    }
+
+    private static string ResolvePreviewToolExecutable()
+    {
+        string bundledExe = Path.Combine(AppContext.BaseDirectory, "CFRezManager.exe");
+        if (File.Exists(bundledExe))
+        {
+            return bundledExe;
+        }
+
+        return Environment.ProcessPath ?? throw new InvalidOperationException("Cannot locate the preview tool executable.");
     }
 
     private void ExplorerItemTemplate_Loaded(object sender, RoutedEventArgs e)
@@ -542,6 +617,22 @@ public partial class MainWindow : Window
     private void ContentsContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        ExplorerItem? previewItem = selectedItems.Count == 1 &&
+                                    (selectedItems[0].IsModelPreviewCandidate ||
+                                     selectedItems[0].IsTextPreviewCandidate ||
+                                     selectedItems[0].IsImagePreviewCandidate)
+            ? selectedItems[0]
+            : null;
+        OpenPreviewMenuItem.Visibility = previewItem is null ? Visibility.Collapsed : Visibility.Visible;
+        PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility;
+        OpenPreviewMenuItem.IsEnabled = !_isBusy && previewItem is not null;
+        OpenPreviewMenuItem.Header = previewItem switch
+        {
+            { IsModelPreviewCandidate: true } => T("OpenModelPreview"),
+            { IsTextPreviewCandidate: true } => T("OpenTextPreview"),
+            _ => T("OpenImagePreview")
+        };
+
         ExtractSelectedMenuItem.IsEnabled = !_isBusy && selectedItems.Count > 0;
         ExtractSelectedMenuItem.Header = selectedItems.Count == 1
             ? T("ExtractThisItem")
@@ -951,6 +1042,7 @@ public partial class MainWindow : Window
         PackFolderButton.Content = T("PackFolder");
         ContentsHeaderText.Text = T("Contents");
         EmptyStateText.Text = T("EmptyFolder");
+        OpenPreviewMenuItem.Header = T("OpenPreview");
         ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
         SearchLabelText.Text = T("SearchLabel");
         SearchTextBox.ToolTip = T("SearchTooltip");

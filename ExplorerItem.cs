@@ -31,6 +31,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     private static readonly SemaphoreSlim ThumbnailSemaphore = new(3);
     private const int MaxThumbnailBytes = 32 * 1024 * 1024;
     private const int MaxPreviewBytes = 128 * 1024 * 1024;
+    private const int MaxTextPreviewBytes = 8 * 1024 * 1024;
+    private const int MaxModelPreviewBytes = 128 * 1024 * 1024;
     private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "png",
@@ -66,7 +68,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     public bool IsThumbnailCandidate => CanLoadThumbnail();
 
-    public bool IsImagePreviewCandidate => CanLoadThumbnail();
+    public bool IsImagePreviewCandidate => CanLoadImagePreview();
+
+    public bool IsModelPreviewCandidate => CanLoadModelPreview();
+
+    public bool IsTextPreviewCandidate => CanLoadTextPreview();
 
     public bool HasThumbnail => _thumbnailSource is not null;
 
@@ -267,6 +273,20 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             : Task.FromResult((IReadOnlyList<ImagePreviewFrame>)Array.Empty<ImagePreviewFrame>());
     }
 
+    public Task<TextPreviewDocument?> LoadTextPreviewAsync()
+    {
+        return IsTextPreviewCandidate
+            ? Task.Run(LoadTextPreview)
+            : Task.FromResult<TextPreviewDocument?>(null);
+    }
+
+    public Task<LithTechModelDocument?> LoadModelPreviewAsync()
+    {
+        return IsModelPreviewCandidate
+            ? Task.Run(LoadModelPreview)
+            : Task.FromResult<LithTechModelDocument?>(null);
+    }
+
     private async Task LoadThumbnailCoreAsync()
     {
         await ThumbnailSemaphore.WaitAsync();
@@ -279,13 +299,26 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 OnPropertyChanged(nameof(ThumbnailSource));
                 OnPropertyChanged(nameof(HasThumbnail));
             }
+            else
+            {
+                ResetThumbnailLoadTask();
+            }
         }
         catch
         {
+            ResetThumbnailLoadTask();
         }
         finally
         {
             ThumbnailSemaphore.Release();
+        }
+    }
+
+    private void ResetThumbnailLoadTask()
+    {
+        lock (_thumbnailSync)
+        {
+            _thumbnailLoadTask = null;
         }
     }
 
@@ -294,7 +327,33 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return Kind == ExplorerItemKind.RezFile &&
                Archive is not null &&
                ArchiveFile is not null &&
+               (ThumbnailExtensions.Contains(ArchiveFile.Extension) ||
+                LithTechModelDecoder.IsCandidate(ArchiveFile.Extension));
+    }
+
+    private bool CanLoadImagePreview()
+    {
+        return Kind == ExplorerItemKind.RezFile &&
+               Archive is not null &&
+               ArchiveFile is not null &&
                ThumbnailExtensions.Contains(ArchiveFile.Extension);
+    }
+
+    private bool CanLoadTextPreview()
+    {
+        return Kind == ExplorerItemKind.RezFile &&
+               Archive is not null &&
+               ArchiveFile is not null &&
+               (EncTextDecoder.IsCandidate(Name, ArchiveFile.Extension) ||
+                TextPreviewDecoder.IsPlainTextExtension(ArchiveFile.Extension));
+    }
+
+    private bool CanLoadModelPreview()
+    {
+        return Kind == ExplorerItemKind.RezFile &&
+               Archive is not null &&
+               ArchiveFile is not null &&
+               LithTechModelDecoder.IsCandidate(ArchiveFile.Extension);
     }
 
     private ImageSource? LoadRezThumbnail()
@@ -302,10 +361,24 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         try
         {
             string? extension = ArchiveFile?.Extension;
-            byte[]? data = ReadArchiveFileBytes(MaxThumbnailBytes);
-            if (data is null || extension is null)
+            if (extension is null)
             {
                 return null;
+            }
+
+            int maxBytes = LithTechModelDecoder.IsCandidate(extension) ? MaxModelPreviewBytes : MaxThumbnailBytes;
+            byte[]? data = ReadArchiveFileBytes(maxBytes);
+            if (data is null)
+            {
+                return null;
+            }
+
+            if (LithTechModelDecoder.IsCandidate(extension))
+            {
+                return LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _) &&
+                       document is not null
+                    ? LithTechModelThumbnailRenderer.TryRender(document)
+                    : null;
             }
 
             if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
@@ -320,7 +393,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return TgaThumbnailDecoder.TryDecode(data);
             }
 
-            return LoadBitmapImage(data, decodeThumbnail: true);
+            return LoadRasterImage(extension, data, decodeThumbnail: true);
         }
         catch
         {
@@ -357,11 +430,74 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return TgaThumbnailDecoder.TryDecodePreviewFrames(data);
             }
 
-            return CreatePreviewFrames(LoadBitmapImage(data, decodeThumbnail: false));
+            return LoadRasterPreviewFrames(extension, data);
         }
         catch
         {
             return Array.Empty<ImagePreviewFrame>();
+        }
+    }
+
+    private TextPreviewDocument? LoadTextPreview()
+    {
+        try
+        {
+            string? extension = ArchiveFile?.Extension;
+            byte[]? data = ReadArchiveFileBytes(MaxTextPreviewBytes);
+            if (data is null || extension is null)
+            {
+                return null;
+            }
+
+            if (EncTextDecoder.IsCandidate(Name, extension))
+            {
+                if (!EncTextDecoder.TryDecode(data, out byte[] decodedBytes) ||
+                    !TextPreviewDecoder.TryDecode(decodedBytes, preferKorean: true, out string decodedText, out string decodedEncoding))
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    decodedText,
+                    decodedEncoding,
+                    TextPreviewStorageKind.EncBase64,
+                    data.Length,
+                    decodedBytes.Length);
+            }
+
+            if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
+            {
+                return null;
+            }
+
+            return new TextPreviewDocument(
+                text,
+                encoding,
+                TextPreviewStorageKind.Plain,
+                data.Length,
+                data.Length);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private LithTechModelDocument? LoadModelPreview()
+    {
+        try
+        {
+            string? extension = ArchiveFile?.Extension;
+            byte[]? data = ReadArchiveFileBytes(MaxModelPreviewBytes);
+            return data is not null &&
+                   extension is not null &&
+                   LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _)
+                ? document
+                : null;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -372,11 +508,73 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             : new[] { new ImagePreviewFrame("Original", imageSource) };
     }
 
+    private ImageSource? LoadRasterImage(string extension, byte[] data, bool decodeThumbnail)
+    {
+        try
+        {
+            return LoadBitmapImage(data, decodeThumbnail);
+        }
+        catch
+        {
+            return TryLoadPngStoredAsTga(extension, data);
+        }
+    }
+
+    private IReadOnlyList<ImagePreviewFrame> LoadRasterPreviewFrames(string extension, byte[] data)
+    {
+        try
+        {
+            return CreatePreviewFrames(LoadBitmapImage(data, decodeThumbnail: false));
+        }
+        catch
+        {
+            if (!IsPngExtension(extension))
+            {
+                return Array.Empty<ImagePreviewFrame>();
+            }
+
+            IReadOnlyList<ImagePreviewFrame> frames = TgaThumbnailDecoder.TryDecodePreviewFrames(data);
+            if (frames.Count > 0)
+            {
+                SetImageStorageKind(GetTgaStorageKind(data));
+            }
+
+            return frames;
+        }
+    }
+
+    private ImageSource? TryLoadPngStoredAsTga(string extension, byte[] data)
+    {
+        if (!IsPngExtension(extension))
+        {
+            return null;
+        }
+
+        ImageSource? image = TgaThumbnailDecoder.TryDecode(data);
+        if (image is null)
+        {
+            IReadOnlyList<ImagePreviewFrame> frames = TgaThumbnailDecoder.TryDecodePreviewFrames(data);
+            image = frames.Count > 0 ? frames[0].Source : null;
+        }
+
+        if (image is not null)
+        {
+            SetImageStorageKind(GetTgaStorageKind(data));
+        }
+
+        return image;
+    }
+
+    private static bool IsPngExtension(string extension)
+    {
+        return string.Equals(extension, "png", StringComparison.OrdinalIgnoreCase);
+    }
+
     private byte[]? ReadArchiveFileBytes(int maxBytes)
     {
         if (Archive is null ||
             ArchiveFile is null ||
-            ArchiveFile.Size <= 0 ||
+            ArchiveFile.Size < 0 ||
             ArchiveFile.Size > maxBytes)
         {
             return null;
