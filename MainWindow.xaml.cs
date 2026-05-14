@@ -186,6 +186,7 @@ public partial class MainWindow : Window
             ["ExtractFailed"] = ("导出失败", "Extract failed"),
             ["ScanningRezArchives"] = ("正在扫描 REZ 资源包...", "Scanning REZ archives..."),
             ["FoundRezArchives"] = ("找到 {0:N0} 个 REZ 资源包", "Found {0:N0} REZ archives"),
+            ["FoundScanItems"] = ("找到 {0:N0} 个 REZ 资源包和 {1:N0} 个文件", "Found {0:N0} REZ archives and {1:N0} files"),
             ["ScanFailed"] = ("扫描失败", "Scan failed"),
             ["LoadFailed"] = ("加载失败", "Load failed"),
             ["LoadingItem"] = ("正在加载 {0}...", "Loading {0}..."),
@@ -195,6 +196,7 @@ public partial class MainWindow : Window
             ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
             ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
             ["OpenPreview"] = ("打开预览...", "Open Preview..."),
+            ["OpenAudioPreview"] = ("播放音频...", "Play Audio..."),
             ["OpenImagePreview"] = ("查看图片...", "View Image..."),
             ["OpenModelPreview"] = ("查看模型...", "View Model..."),
             ["OpenTextPreview"] = ("查看文本...", "View Text..."),
@@ -300,7 +302,7 @@ public partial class MainWindow : Window
 
     private async void ExtractAllButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_rootItem is null || _archiveCount == 0)
+        if (_rootItem is null || (_archiveCount == 0 && _extractableFileCount == 0))
         {
             return;
         }
@@ -332,6 +334,10 @@ public partial class MainWindow : Window
         if (IsSpritePreviewCandidate(item))
         {
             await ShowSpritePreviewAsync(item);
+        }
+        else if (IsAudioPreviewCandidate(item))
+        {
+            await ShowAudioPreviewAsync(item);
         }
         else if (item.IsModelPreviewCandidate)
         {
@@ -422,6 +428,10 @@ public partial class MainWindow : Window
         {
             await ShowSpritePreviewAsync(item);
         }
+        else if (IsAudioPreviewCandidate(item))
+        {
+            await ShowAudioPreviewAsync(item);
+        }
         else if (item.IsModelPreviewCandidate)
         {
             await ShowModelPreviewAsync(item);
@@ -444,6 +454,80 @@ public partial class MainWindow : Window
     private async Task ShowTextPreviewAsync(ExplorerItem item)
     {
         await ShowPreviewToolAsync(item);
+    }
+
+    private async Task ShowAudioPreviewAsync(ExplorerItem item)
+    {
+        List<ExplorerItem> audioItems = GetCurrentAudioPreviewItems();
+        int audioIndex = audioItems.IndexOf(item);
+        if (audioIndex < 0)
+        {
+            audioItems = [item];
+            audioIndex = 0;
+        }
+
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingPreview", item.Name);
+
+        try
+        {
+            AudioPreviewDocument? document = await LoadAudioPreviewDocumentAsync(item);
+            if (document is null)
+            {
+                SetStatus("PreviewUnsupported", item.Name);
+                return;
+            }
+
+            Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
+            {
+                return index >= 0 && index < audioItems.Count
+                    ? LoadAudioPreviewDocumentAsync(audioItems[index])
+                    : Task.FromResult<AudioPreviewDocument?>(null);
+            }
+
+            var window = new AudioPreviewWindow(
+                document,
+                audioItems.Count > 1 ? LoadDocumentAtAsync : null,
+                audioIndex,
+                audioItems.Count)
+            {
+                Owner = this,
+                ShowInTaskbar = true
+            };
+            window.Show();
+            SetStatus("PreviewOpened", item.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
+    }
+
+    private List<ExplorerItem> GetCurrentAudioPreviewItems()
+    {
+        return ContentsList.Items
+            .OfType<ExplorerItem>()
+            .Where(IsAudioPreviewCandidate)
+            .ToList();
+    }
+
+    private static Task<AudioPreviewDocument?> LoadAudioPreviewDocumentAsync(ExplorerItem item)
+    {
+        return Task.Run(() =>
+        {
+            byte[] data = ReadExplorerFileBytes(item, AudioPreviewDocumentFactory.MaxAudioPreviewBytes);
+            return AudioPreviewDocumentFactory.TryCreate(
+                item.Name,
+                item.Kind == ExplorerItemKind.LocalFile ? item.SourcePath : null,
+                data,
+                canUseSourcePath: item.Kind == ExplorerItemKind.LocalFile,
+                out AudioPreviewDocument? document,
+                out _) ? document : null;
+        });
     }
 
     private async Task ShowImagePreviewAsync(ExplorerItem item)
@@ -531,7 +615,7 @@ public partial class MainWindow : Window
     {
         if (item.Archive is null || item.ArchiveFile is null)
         {
-            await ShowTextPreviewAsync(item);
+            await ShowPreviewToolAsync(item);
             return;
         }
 
@@ -600,9 +684,14 @@ public partial class MainWindow : Window
 
     private static string CreatePreviewToolFile(ExplorerItem item)
     {
+        if (item.Kind == ExplorerItemKind.LocalFile)
+        {
+            return item.SourcePath;
+        }
+
         if (item.Archive is null || item.ArchiveFile is null)
         {
-            throw new InvalidOperationException("Only files inside a REZ archive can be previewed here.");
+            throw new InvalidOperationException("This item cannot be previewed as a file.");
         }
 
         string previewDirectory = Path.Combine(Path.GetTempPath(), "CFRezManager", "PreviewTool");
@@ -613,12 +702,42 @@ public partial class MainWindow : Window
         return previewPath;
     }
 
+    private static byte[] ReadExplorerFileBytes(ExplorerItem item, int maxBytes)
+    {
+        if (item.Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(item.SourcePath);
+            if (!info.Exists || info.Length < 0 || info.Length > maxBytes || info.Length > int.MaxValue)
+            {
+                throw new InvalidOperationException($"File is too large to preview: {item.Name}");
+            }
+
+            return File.ReadAllBytes(item.SourcePath);
+        }
+
+        if (item.Archive is null ||
+            item.ArchiveFile is null ||
+            item.ArchiveFile.Size < 0 ||
+            item.ArchiveFile.Size > maxBytes)
+        {
+            throw new InvalidOperationException($"File is too large to preview: {item.Name}");
+        }
+
+        byte[] data = new byte[item.ArchiveFile.Size];
+        using FileStream source = File.OpenRead(item.Archive.FilePath);
+        source.Position = item.ArchiveFile.DataOffset;
+        source.ReadExactly(data);
+        return data;
+    }
+
     private static bool IsSpritePreviewCandidate(ExplorerItem item)
     {
-        return item.Kind == ExplorerItemKind.RezFile &&
-               item.Archive is not null &&
-               item.ArchiveFile is not null &&
-               LithTechSpriteDecoder.IsCandidate(item.ArchiveFile.Extension);
+        return item.IsFile && LithTechSpriteDecoder.IsCandidate(item.FileExtension);
+    }
+
+    private static bool IsAudioPreviewCandidate(ExplorerItem item)
+    {
+        return item.IsFile && AudioMetadataDecoder.IsSupportedExtension(item.FileExtension);
     }
 
     private static void StartPreviewTool(string filePath)
@@ -761,6 +880,7 @@ public partial class MainWindow : Window
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
         ExplorerItem? previewItem = selectedItems.Count == 1 &&
                                     (IsSpritePreviewCandidate(selectedItems[0]) ||
+                                     IsAudioPreviewCandidate(selectedItems[0]) ||
                                      selectedItems[0].IsModelPreviewCandidate ||
                                      selectedItems[0].IsTextPreviewCandidate ||
                                      selectedItems[0].IsImagePreviewCandidate)
@@ -773,6 +893,7 @@ public partial class MainWindow : Window
             ? T("OpenImagePreview")
             : previewItem switch
             {
+                ExplorerItem audioItem when IsAudioPreviewCandidate(audioItem) => T("OpenAudioPreview"),
                 { IsModelPreviewCandidate: true } => T("OpenModelPreview"),
                 { IsTextPreviewCandidate: true } => T("OpenTextPreview"),
                 _ => T("OpenImagePreview")
@@ -1317,13 +1438,13 @@ public partial class MainWindow : Window
             _rootItem = root;
             _selectedDirectory = folder;
             _archiveCount = CountItems(root, ExplorerItemKind.RezArchive);
-            _extractableFileCount = 0;
+            _extractableFileCount = CountItems(root, ExplorerItemKind.LocalFile);
             _backHistory.Clear();
             _forwardHistory.Clear();
 
             await ShowFolderAsync(root, addToHistory: false);
 
-            SetStatus("FoundRezArchives", _archiveCount);
+            SetStatus("FoundScanItems", _archiveCount, _extractableFileCount);
         }
         catch (Exception ex)
         {
@@ -1386,6 +1507,11 @@ public partial class MainWindow : Window
         {
             parent.AddChild(CreateArchivePlaceholderItem(rezPath, rootFolder));
         }
+
+        foreach (string filePath in SafeEnumerateResourceFiles(folder))
+        {
+            parent.AddChild(CreateLocalFileItem(filePath, rootFolder));
+        }
     }
 
     private static ExplorerItem CreateArchivePlaceholderItem(string rezPath, string rootFolder)
@@ -1400,6 +1526,18 @@ public partial class MainWindow : Window
             SourcePath = rezPath,
             OutputRelativePath = outputRelativePath,
             IsLoaded = false
+        };
+    }
+
+    private static ExplorerItem CreateLocalFileItem(string filePath, string rootFolder)
+    {
+        string relativePath = Path.GetRelativePath(rootFolder, filePath);
+        return new ExplorerItem
+        {
+            Name = Path.GetFileName(filePath),
+            Kind = ExplorerItemKind.LocalFile,
+            SourcePath = filePath,
+            OutputRelativePath = SanitizeRelativePath(relativePath)
         };
     }
 
@@ -1642,6 +1780,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private static IEnumerable<string> SafeEnumerateResourceFiles(string folder)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(folder)
+                .Where(file => !string.Equals(Path.GetExtension(file), ".rez", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private static List<ExtractionJob> BuildExtractionJobs(IEnumerable<ExplorerItem> items, bool preserveOutputRelativePaths)
     {
         var jobs = new List<ExtractionJob>();
@@ -1670,7 +1822,8 @@ public partial class MainWindow : Window
         HashSet<ExplorerItem> seenItems,
         HashSet<string> usedRelativePaths)
     {
-        if (item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
+        if (item.Kind == ExplorerItemKind.LocalFile ||
+            item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
         {
             AddExtractionJob(item, item.OutputRelativePath, jobs, seenItems, usedRelativePaths);
         }
@@ -1688,7 +1841,8 @@ public partial class MainWindow : Window
         HashSet<ExplorerItem> seenItems,
         HashSet<string> usedRelativePaths)
     {
-        if (item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
+        if (item.Kind == ExplorerItemKind.LocalFile ||
+            item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
         {
             AddExtractionJob(item, relativePath, jobs, seenItems, usedRelativePaths);
             return;
@@ -1858,7 +2012,20 @@ public partial class MainWindow : Window
         {
             ExplorerItem item = job.Item;
             string destinationPath = Path.Combine(outputDirectory, job.RelativePath);
-            RezArchiveReader.ExtractFile(item.Archive!, item.ArchiveFile!, destinationPath);
+            if (item.Kind == ExplorerItemKind.LocalFile)
+            {
+                string? destinationDirectory = Path.GetDirectoryName(destinationPath);
+                if (!string.IsNullOrWhiteSpace(destinationDirectory))
+                {
+                    Directory.CreateDirectory(destinationDirectory);
+                }
+
+                File.Copy(item.SourcePath, destinationPath, overwrite: true);
+            }
+            else
+            {
+                RezArchiveReader.ExtractFile(item.Archive!, item.ArchiveFile!, destinationPath);
+            }
 
             int done = Interlocked.Increment(ref completed);
             if (done == jobs.Count || ShouldReportProgress(ref nextReportAt))

@@ -8,7 +8,8 @@ public enum TextPreviewStorageKind
     EncBase64,
     LtcConverted,
     CrossFireDat,
-    LithTechSprite
+    LithTechSprite,
+    ResourceDecoded
 }
 
 public sealed record TextPreviewDocument(

@@ -52,16 +52,17 @@ jobs:
             ## Highlights
 
             - Browse, search, extract, and repack LithTech / CrossFire REZ archives.
-            - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, LTC, DAT, model, and world resources.
-            - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC resources.
+            - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, WAV, OGG, MP3, LTC, DAT, model, and world resources.
+            - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC/audio/text resources.
             - Parse LithTech SPR files and preview sprite animations by loading referenced DTX frames.
             - Preview more LTB binary models and LTA world/map text files.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
 
-            ## v0.9.0
+            ## v0.10.0
 
-            - Expanded native LTB binary model parsing for more mesh-table locations, vertex layouts, trailing mesh data, and mesh type variants.
-            - Added LTA world/map text parsing, converting polyhedron point lists and face indices into previewable map meshes.
-            - Improved the model preview window with free-look viewing, WASD movement, Shift fast movement, mouse-wheel movement, and steadier reset behavior.
-            - Improved the image preview window with previous/next navigation and aspect-preserving thumbnail decode sizing.
+            - Added loose-file browsing support so supported resources outside REZ archives can be previewed directly.
+            - Added WAV, OGG, and MP3 audio metadata parsing, waveform thumbnails, previous/next audio navigation, and a PotPlayer-style audio preview window.
+            - Added OGG playback conversion through NVorbis and MP3 spectrum analysis through NAudio/MediaFoundation.
+            - Optimized the audio spectrum renderer with a WriteableBitmap pixel buffer and improved end-of-playback peak falloff.
+            - Added decoded text previews for more CrossFire resource formats, including CFT/FCF/FXF/FXO/NAV/APF/REF and WAVE header data.
             - Refreshed Chinese and English documentation.

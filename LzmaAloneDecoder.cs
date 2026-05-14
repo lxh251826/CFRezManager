@@ -19,9 +19,76 @@ internal static class LzmaAloneDecoder
                data[3] == 0;
     }
 
+    public static bool TryGetDecodedByteCount(byte[] data, out long decodedBytes)
+    {
+        decodedBytes = 0;
+        if (!IsCompressed(data))
+        {
+            return false;
+        }
+
+        decodedBytes = BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(PropertiesLength, sizeof(long)));
+        return decodedBytes >= 0;
+    }
+
     public static byte[]? TryPrepareData(byte[] data, long maxDecodedBytes = DefaultMaxDecodedBytes)
     {
         return IsCompressed(data) ? TryDecompress(data, maxDecodedBytes) : data;
+    }
+
+    public static byte[]? TryDecompressPrefix(byte[] data, int maxPrefixBytes)
+    {
+        if (maxPrefixBytes <= 0 || !TryGetDecodedByteCount(data, out long decodedBytes))
+        {
+            return null;
+        }
+
+        if (decodedBytes <= maxPrefixBytes)
+        {
+            return TryDecompress(data, maxPrefixBytes);
+        }
+
+        try
+        {
+            byte[] properties = data.AsSpan(0, PropertiesLength).ToArray();
+            using var compressed = new MemoryStream(data, HeaderLength, data.Length - HeaderLength, writable: false);
+            using LzmaStream lzma = LzmaStream.Create(
+                properties,
+                compressed,
+                data.Length - HeaderLength,
+                decodedBytes,
+                leaveOpen: false);
+
+            byte[] buffer = new byte[maxPrefixBytes];
+            int total = 0;
+            while (total < buffer.Length)
+            {
+                int read = lzma.Read(buffer, total, buffer.Length - total);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                total += read;
+            }
+
+            if (total == 0)
+            {
+                return null;
+            }
+
+            if (total == buffer.Length)
+            {
+                return buffer;
+            }
+
+            Array.Resize(ref buffer, total);
+            return buffer;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static byte[]? TryDecompress(byte[] data, long maxDecodedBytes)

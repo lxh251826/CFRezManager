@@ -21,6 +21,14 @@ internal static class PreviewTool
         "tiff"
     };
 
+    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mp3",
+        "ogg",
+        "wav",
+        "wave"
+    };
+
     public static bool TryGetPreviewPath(string[] args, out string filePath)
     {
         filePath = string.Empty;
@@ -63,9 +71,11 @@ internal static class PreviewTool
         return LithTechModelDecoder.IsCandidate(extension) ||
                LithTechWorldDatDecoder.IsCandidate(extension) ||
                ImageExtensions.Contains(extension) ||
+               AudioExtensions.Contains(extension) ||
                EncTextDecoder.IsCandidate(fileName, extension) ||
                CrossFireDatDecoder.IsCandidate(extension) ||
                LithTechSpriteDecoder.IsCandidate(extension) ||
+               ResourceTextDecoder.IsCandidate(fileName, extension) ||
                TextPreviewDecoder.IsPlainTextExtension(extension);
     }
 
@@ -125,13 +135,23 @@ internal static class PreviewTool
                 return true;
             }
 
+            string? audioError = null;
+            if (AudioExtensions.Contains(extension) &&
+                TryCreateAudioWindow(fileName, filePath, data, out window, out audioError))
+            {
+                window!.ShowInTaskbar = true;
+                return true;
+            }
+
             if (TryCreateTextWindow(fileName, extension, data, out window, out string? textError))
             {
                 window!.ShowInTaskbar = true;
                 return true;
             }
 
-            errorMessage = !string.IsNullOrWhiteSpace(textError)
+            errorMessage = !string.IsNullOrWhiteSpace(audioError)
+                ? audioError
+                : !string.IsNullOrWhiteSpace(textError)
                 ? textError
                 : !string.IsNullOrWhiteSpace(modelFallbackError)
                     ? modelFallbackError
@@ -192,6 +212,32 @@ internal static class PreviewTool
         }
 
         window = new ImagePreviewWindow(fileName, frames, info);
+        return true;
+    }
+
+    private static bool TryCreateAudioWindow(
+        string fileName,
+        string filePath,
+        byte[] data,
+        out Window? window,
+        out string? errorMessage)
+    {
+        window = null;
+        errorMessage = null;
+
+        if (!AudioPreviewDocumentFactory.TryCreate(
+                fileName,
+                filePath,
+                data,
+                canUseSourcePath: true,
+                out AudioPreviewDocument? document,
+                out errorMessage) ||
+            document is null)
+        {
+            return false;
+        }
+
+        window = new AudioPreviewWindow(document);
         return true;
     }
 
@@ -316,6 +362,19 @@ internal static class PreviewTool
 
             string info = $"{sprDocument.StorageDescription}, {sprDocument.FrameCount:N0} frames @ {sprDocument.FrameRate:N0} fps, {sprDocument.SourceByteCount:N0} bytes -> {sprDocument.DecodedByteCount:N0} bytes";
             window = new TextPreviewWindow(fileName, sprDocument.Text, info);
+            return true;
+        }
+
+        if (ResourceTextDecoder.IsCandidate(fileName, extension))
+        {
+            if (!ResourceTextDecoder.TryDecode(data, fileName, extension, out ResourceTextDocument? resourceDocument, out errorMessage) ||
+                resourceDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{resourceDocument.Description}, {resourceDocument.SourceByteCount:N0} bytes -> {resourceDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, resourceDocument.Text, info);
             return true;
         }
 

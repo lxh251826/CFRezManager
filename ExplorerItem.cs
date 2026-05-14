@@ -9,6 +9,7 @@ namespace CFRezManager;
 public enum ExplorerItemKind
 {
     Directory,
+    LocalFile,
     RezArchive,
     RezDirectory,
     RezFile
@@ -30,7 +31,11 @@ public enum ImageStorageKind
     CrossFireDat,
     CrossFireDatLzma,
     LithTechSprite,
-    LithTechSpriteLzma
+    LithTechSpriteLzma,
+    AudioUncompressed,
+    AudioLzmaCompressed,
+    ResourceText,
+    ResourceTextLzma
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -57,6 +62,21 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         "dtx"
     };
 
+    private static readonly HashSet<string> TextThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cft",
+        "fcf",
+        "txt"
+    };
+
+    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mp3",
+        "ogg",
+        "wav",
+        "wave"
+    };
+
     private readonly object _thumbnailSync = new();
     private Task? _thumbnailLoadTask;
     private ImageSource? _thumbnailSource;
@@ -74,6 +94,15 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     public List<ExplorerItem> Children { get; } = new();
 
     public bool IsContainer => Kind is ExplorerItemKind.Directory or ExplorerItemKind.RezArchive or ExplorerItemKind.RezDirectory;
+
+    public bool IsFile => Kind is ExplorerItemKind.LocalFile or ExplorerItemKind.RezFile;
+
+    public string FileExtension => Kind switch
+    {
+        ExplorerItemKind.RezFile => ArchiveFile?.Extension ?? string.Empty,
+        ExplorerItemKind.LocalFile => Path.GetExtension(SourcePath).TrimStart('.'),
+        _ => string.Empty
+    };
 
     public ImageSource? IconSource => IsContainer ? FolderIconImage : null;
 
@@ -103,6 +132,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.CrossFireDatLzma => "LZMA",
         ImageStorageKind.LithTechSprite => "SPR",
         ImageStorageKind.LithTechSpriteLzma => "LZMA",
+        ImageStorageKind.AudioUncompressed => "RAW",
+        ImageStorageKind.AudioLzmaCompressed => "LZMA",
+        ImageStorageKind.ResourceText => "TXT",
+        ImageStorageKind.ResourceTextLzma => "LZMA",
         _ => null
     };
 
@@ -118,6 +151,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.CrossFireDatLzma => "LZ",
         ImageStorageKind.LithTechSprite => "SP",
         ImageStorageKind.LithTechSpriteLzma => "LZ",
+        ImageStorageKind.AudioUncompressed => "R",
+        ImageStorageKind.AudioLzmaCompressed => "LZ",
+        ImageStorageKind.ResourceText => "TX",
+        ImageStorageKind.ResourceTextLzma => "LZ",
         _ => null
     };
 
@@ -131,6 +168,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         {
             return Kind switch
             {
+                ExplorerItemKind.LocalFile => TryGetFileSize(SourcePath),
                 ExplorerItemKind.RezFile => ArchiveFile?.Size,
                 ExplorerItemKind.RezArchive => TryGetFileSize(SourcePath),
                 ExplorerItemKind.Directory => SumChildSizes(),
@@ -145,6 +183,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     public string KindText => Kind switch
     {
         ExplorerItemKind.Directory => "Folder",
+        ExplorerItemKind.LocalFile => "File",
         ExplorerItemKind.RezArchive => "REZ archive",
         ExplorerItemKind.RezDirectory => "REZ folder",
         ExplorerItemKind.RezFile => "REZ file",
@@ -234,6 +273,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.LithTechSpriteLzma)
                 {
                     lines.Add("SPR preview: LZMA-compressed LithTech sprite animation");
+                }
+                else if (_imageStorageKind is ImageStorageKind.AudioUncompressed)
+                {
+                    lines.Add("Audio preview: uncompressed audio");
+                }
+                else if (_imageStorageKind is ImageStorageKind.AudioLzmaCompressed)
+                {
+                    lines.Add("Audio preview: LZMA-compressed audio");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ResourceText)
+                {
+                    lines.Add("Resource preview: decoded text");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ResourceTextLzma)
+                {
+                    lines.Add("Resource preview: LZMA-compressed decoded text");
                 }
 
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
@@ -326,7 +381,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     public Task<IReadOnlyList<ImagePreviewFrame>> LoadPreviewFramesAsync()
     {
         return IsImagePreviewCandidate
-            ? Task.Run(LoadRezPreviewFrames)
+            ? Task.Run(LoadPreviewFrames)
             : Task.FromResult((IReadOnlyList<ImagePreviewFrame>)Array.Empty<ImagePreviewFrame>());
     }
 
@@ -349,7 +404,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         await ThumbnailSemaphore.WaitAsync();
         try
         {
-            ImageSource? thumbnail = await Task.Run(LoadRezThumbnail);
+            ImageSource? thumbnail = await Task.Run(LoadThumbnail);
             if (thumbnail is not null)
             {
                 _thumbnailSource = thumbnail;
@@ -381,51 +436,48 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     private bool CanLoadThumbnail()
     {
-        return Kind == ExplorerItemKind.RezFile &&
-               Archive is not null &&
-               ArchiveFile is not null &&
-               (ThumbnailExtensions.Contains(ArchiveFile.Extension) ||
-                LithTechModelDecoder.IsCandidate(ArchiveFile.Extension) ||
-                LithTechWorldDatDecoder.IsCandidate(ArchiveFile.Extension) ||
-                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension) ||
-                LithTechSpriteDecoder.IsCandidate(ArchiveFile.Extension));
+        string extension = FileExtension;
+        return IsFile &&
+               (ThumbnailExtensions.Contains(extension) ||
+                TextThumbnailExtensions.Contains(extension) ||
+                AudioExtensions.Contains(extension) ||
+                LithTechModelDecoder.IsCandidate(extension) ||
+                LithTechWorldDatDecoder.IsCandidate(extension) ||
+                CrossFireDatDecoder.IsCandidate(extension) ||
+                LithTechSpriteDecoder.IsCandidate(extension));
     }
 
     private bool CanLoadImagePreview()
     {
-        return Kind == ExplorerItemKind.RezFile &&
-               Archive is not null &&
-               ArchiveFile is not null &&
-               ThumbnailExtensions.Contains(ArchiveFile.Extension);
+        return IsFile && ThumbnailExtensions.Contains(FileExtension);
     }
 
     private bool CanLoadTextPreview()
     {
-        return Kind == ExplorerItemKind.RezFile &&
-               Archive is not null &&
-               ArchiveFile is not null &&
-               (EncTextDecoder.IsCandidate(Name, ArchiveFile.Extension) ||
-                CrossFireLtcDecoder.IsCandidate(ArchiveFile.Extension) ||
-                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension) ||
-                LithTechSpriteDecoder.IsCandidate(ArchiveFile.Extension) ||
-                TextPreviewDecoder.IsPlainTextExtension(ArchiveFile.Extension));
+        string extension = FileExtension;
+        return IsFile &&
+               (EncTextDecoder.IsCandidate(Name, extension) ||
+                CrossFireLtcDecoder.IsCandidate(extension) ||
+                CrossFireDatDecoder.IsCandidate(extension) ||
+                LithTechSpriteDecoder.IsCandidate(extension) ||
+                ResourceTextDecoder.IsCandidate(Name, extension) ||
+                TextPreviewDecoder.IsPlainTextExtension(extension));
     }
 
     private bool CanLoadModelPreview()
     {
-        return Kind == ExplorerItemKind.RezFile &&
-               Archive is not null &&
-               ArchiveFile is not null &&
-               (LithTechModelDecoder.IsCandidate(ArchiveFile.Extension) ||
-                LithTechWorldDatDecoder.IsCandidate(ArchiveFile.Extension));
+        string extension = FileExtension;
+        return IsFile &&
+               (LithTechModelDecoder.IsCandidate(extension) ||
+                LithTechWorldDatDecoder.IsCandidate(extension));
     }
 
-    private ImageSource? LoadRezThumbnail()
+    private ImageSource? LoadThumbnail()
     {
         try
         {
-            string? extension = ArchiveFile?.Extension;
-            if (extension is null)
+            string extension = FileExtension;
+            if (string.IsNullOrWhiteSpace(extension))
             {
                 return null;
             }
@@ -437,7 +489,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     : CrossFireDatDecoder.IsCandidate(extension)
                         ? MaxModelPreviewBytes
                         : MaxThumbnailBytes;
-            byte[]? data = ReadArchiveFileBytes(maxBytes);
+            byte[]? data = ReadFileBytes(maxBytes);
             if (data is null)
             {
                 return null;
@@ -459,6 +511,16 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             if (LithTechSpriteDecoder.IsCandidate(extension))
             {
                 return LoadLithTechSpriteThumbnail(data);
+            }
+
+            if (AudioExtensions.Contains(extension))
+            {
+                return LoadAudioThumbnail(data);
+            }
+
+            if (ResourceTextDecoder.IsCandidate(Name, extension) && TextThumbnailExtensions.Contains(extension))
+            {
+                return LoadResourceTextThumbnail(data, extension);
             }
 
             if (CrossFireLtcDecoder.IsCandidate(extension))
@@ -547,6 +609,37 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
         SetImageStorageKind(GetLithTechSpriteStorageKind(data));
         return TextThumbnailRenderer.TryRender(Name, document.Text, "SPR");
+    }
+
+    private ImageSource? LoadAudioThumbnail(byte[] data)
+    {
+        byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data);
+        if (prepared is null)
+        {
+            return null;
+        }
+
+        SetImageStorageKind(LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.AudioLzmaCompressed
+            : ImageStorageKind.AudioUncompressed);
+        return AudioThumbnailRenderer.TryRender(Name, prepared);
+    }
+
+    private ImageSource? LoadResourceTextThumbnail(byte[] data, string extension)
+    {
+        if (!ResourceTextDecoder.TryDecode(data, Name, extension, out ResourceTextDocument? document, out _) ||
+            document is null)
+        {
+            return null;
+        }
+
+        SetImageStorageKind(LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.ResourceTextLzma
+            : ImageStorageKind.ResourceText);
+        string badge = string.Equals(extension, "txt", StringComparison.OrdinalIgnoreCase)
+            ? "TXT"
+            : extension.ToUpperInvariant();
+        return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
     }
 
     private static LithTechModelDocument SimplifyForThumbnail(LithTechModelDocument document, int maxTriangles)
@@ -670,19 +763,19 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return mappedIndex;
     }
 
-    private ImageSource? LoadRezPreviewImage()
+    private ImageSource? LoadPreviewImage()
     {
-        IReadOnlyList<ImagePreviewFrame> frames = LoadRezPreviewFrames();
+        IReadOnlyList<ImagePreviewFrame> frames = LoadPreviewFrames();
         return frames.Count > 0 ? frames[0].Source : null;
     }
 
-    private IReadOnlyList<ImagePreviewFrame> LoadRezPreviewFrames()
+    private IReadOnlyList<ImagePreviewFrame> LoadPreviewFrames()
     {
         try
         {
-            string? extension = ArchiveFile?.Extension;
-            byte[]? data = ReadArchiveFileBytes(MaxPreviewBytes);
-            if (data is null || extension is null)
+            string extension = FileExtension;
+            byte[]? data = ReadFileBytes(MaxPreviewBytes);
+            if (data is null || string.IsNullOrWhiteSpace(extension))
             {
                 return Array.Empty<ImagePreviewFrame>();
             }
@@ -711,9 +804,9 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     {
         try
         {
-            string? extension = ArchiveFile?.Extension;
-            byte[]? data = ReadArchiveFileBytes(MaxTextPreviewBytes);
-            if (data is null || extension is null)
+            string extension = FileExtension;
+            byte[]? data = ReadFileBytes(MaxTextPreviewBytes);
+            if (data is null || string.IsNullOrWhiteSpace(extension))
             {
                 return null;
             }
@@ -782,6 +875,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     sprDocument.DecodedByteCount);
             }
 
+            if (ResourceTextDecoder.IsCandidate(Name, extension))
+            {
+                if (!ResourceTextDecoder.TryDecode(data, Name, extension, out ResourceTextDocument? resourceDocument, out _) ||
+                    resourceDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    resourceDocument.Text,
+                    resourceDocument.Description,
+                    TextPreviewStorageKind.ResourceDecoded,
+                    resourceDocument.SourceByteCount,
+                    resourceDocument.DecodedByteCount);
+            }
+
             if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
             {
                 return null;
@@ -804,8 +913,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     {
         try
         {
-            string? extension = ArchiveFile?.Extension;
-            if (extension is null)
+            string extension = FileExtension;
+            if (string.IsNullOrWhiteSpace(extension))
             {
                 return null;
             }
@@ -813,7 +922,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
                 ? MaxWorldDatPreviewBytes
                 : MaxModelPreviewBytes;
-            byte[]? data = ReadArchiveFileBytes(maxBytes);
+            byte[]? data = ReadFileBytes(maxBytes);
             if (data is null)
             {
                 return null;
@@ -905,8 +1014,19 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return string.Equals(extension, "png", StringComparison.OrdinalIgnoreCase);
     }
 
-    private byte[]? ReadArchiveFileBytes(int maxBytes)
+    private byte[]? ReadFileBytes(int maxBytes)
     {
+        if (Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(SourcePath);
+            if (!info.Exists || info.Length < 0 || info.Length > maxBytes || info.Length > int.MaxValue)
+            {
+                return null;
+            }
+
+            return File.ReadAllBytes(SourcePath);
+        }
+
         if (Archive is null ||
             ArchiveFile is null ||
             ArchiveFile.Size < 0 ||
@@ -1019,6 +1139,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
             ImageStorageKind.LithTechWorldDat or ImageStorageKind.LithTechWorldDatLzma or ImageStorageKind.CrossFireDat or ImageStorageKind.CrossFireDatLzma => "DAT",
             ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",
+            ImageStorageKind.AudioUncompressed or ImageStorageKind.AudioLzmaCompressed => "Audio",
+            ImageStorageKind.ResourceText or ImageStorageKind.ResourceTextLzma => "Resource",
             _ => "Image"
         };
     }
