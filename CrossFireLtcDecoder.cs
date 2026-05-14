@@ -42,7 +42,7 @@ internal static class CrossFireLtcDecoder
             return converterError;
         }
 
-        return "检测到 CrossFire LTC 头 54 83 B2 E1。外层 XOR 密钥已内置，解锁后会优先使用内置 LithTech LTC 解码器；如果仍失败，可在 tools 目录放置 LTC.exe，或设置 CFREZ_LTC_TO_LTA 指向可用的 LTC->LTA 转换器。";
+        return LocalizedText.T("CrossFireLtcUnsupported");
     }
 
     public static bool TryUnlockCrossFirePayload(byte[] data, out byte[] unlocked)
@@ -93,7 +93,7 @@ internal static class CrossFireLtcDecoder
         }
 
         errorMessage = string.IsNullOrWhiteSpace(errorMessage)
-            ? "LTC 不是可直接识别的文本/压缩文本，也未能用内置 LTC 解码器还原为 LTA。可配置 CFREZ_LTC_TO_LTA 作为外部兜底。"
+            ? LocalizedText.T("LtcNotRecognized")
             : errorMessage;
         return false;
     }
@@ -118,7 +118,7 @@ internal static class CrossFireLtcDecoder
         if (converterPath is null)
         {
             errorMessage = string.IsNullOrWhiteSpace(nativeError)
-                ? "内置 LTC 解码失败，且未找到外部 LTC->LTA 转换器。"
+                ? LocalizedText.T("LtcNativeAndConverterMissing")
                 : nativeError;
             return false;
         }
@@ -153,7 +153,7 @@ internal static class CrossFireLtcDecoder
             using Process? process = Process.Start(startInfo);
             if (process is null)
             {
-                errorMessage = $"无法启动 LTC 转换器: {converterPath}";
+                errorMessage = LocalizedText.Format("LtcConverterStartFailed", converterPath);
                 return false;
             }
 
@@ -162,7 +162,7 @@ internal static class CrossFireLtcDecoder
             if (!process.WaitForExit(ExternalConverterTimeoutMilliseconds))
             {
                 TryKillProcess(process);
-                errorMessage = "LTC 转换器转换超时。请检查 CFREZ_LTC_TO_LTA 或 tools\\ltc_to_lta.cmd 的命令行参数。";
+                errorMessage = LocalizedText.T("LtcConverterTimeout");
                 return false;
             }
 
@@ -172,7 +172,7 @@ internal static class CrossFireLtcDecoder
             {
                 string detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
                 errorMessage = string.IsNullOrWhiteSpace(detail)
-                    ? $"LTC 转换器转换失败，退出码 {process.ExitCode}。"
+                    ? LocalizedText.Format("LtcConverterFailedExitCode", process.ExitCode)
                     : detail.Trim();
                 return false;
             }
@@ -180,7 +180,7 @@ internal static class CrossFireLtcDecoder
             byte[] convertedBytes = File.ReadAllBytes(outputPath);
             if (!TextPreviewDecoder.TryDecode(convertedBytes, preferKorean: isCrossFireLocked, out string text, out string encodingName))
             {
-                errorMessage = "LTC 转换器已输出文件，但文本编码无法识别。";
+                errorMessage = LocalizedText.T("LtcConverterOutputEncodingUnrecognized");
                 return false;
             }
 
@@ -218,7 +218,7 @@ internal static class CrossFireLtcDecoder
         if (!TextPreviewDecoder.TryDecode(convertedBytes, preferKorean: isCrossFireLocked, out string text, out string encodingName) ||
             !LooksLikeStructuredText(text))
         {
-            errorMessage = "内置 LTC 解码器已输出数据，但结果不是可识别的 LTA 文本。";
+            errorMessage = LocalizedText.T("LtcNativeOutputNotLta");
             return false;
         }
 

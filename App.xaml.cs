@@ -9,6 +9,7 @@ public partial class App : System.Windows.Application
         ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose;
         if (PreviewTool.IsPreviewInvocation(e.Args))
         {
+            LocalizedText.UseSavedLanguage();
             string? errorMessage = null;
             if (PreviewTool.TryGetPreviewPath(e.Args, out string previewPath) &&
                 PreviewTool.TryCreateWindow(previewPath, out System.Windows.Window? previewWindow, out errorMessage) &&
@@ -20,8 +21,8 @@ public partial class App : System.Windows.Application
             else
             {
                 System.Windows.MessageBox.Show(
-                    errorMessage ?? "无法预览此文件。",
-                    "Preview failed",
+                    errorMessage ?? LocalizedText.T("PreviewUnsupportedFile"),
+                    LocalizedText.T("PreviewFailedTitle"),
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Information);
                 Shutdown(1);

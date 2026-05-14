@@ -15,13 +15,13 @@ internal static class LithTechLtcNativeDecoder
 
         if (data.Length < HeaderByteCount + 2)
         {
-            errorMessage = "LTC 数据太短。";
+            errorMessage = LocalizedText.T("LtcDataTooShort");
             return false;
         }
 
         if (data[0] != 0 || data[1] != 0 || data[2] != 0 || data[3] != 0)
         {
-            errorMessage = "LTC 头不是标准 LithTech 压缩流。";
+            errorMessage = LocalizedText.T("LtcHeaderInvalid");
             return false;
         }
 
@@ -41,7 +41,7 @@ internal static class LithTechLtcNativeDecoder
             {
                 if (reader.RemainingBits < 8)
                 {
-                    errorMessage = "LTC literal 数据不完整。";
+                    errorMessage = LocalizedText.T("LtcLiteralIncomplete");
                     return false;
                 }
 
@@ -63,7 +63,7 @@ internal static class LithTechLtcNativeDecoder
 
             if (reader.RemainingBits < 4)
             {
-                errorMessage = "LTC match 长度数据不完整。";
+                errorMessage = LocalizedText.T("LtcMatchLengthIncomplete");
                 return false;
             }
 
@@ -79,7 +79,7 @@ internal static class LithTechLtcNativeDecoder
             }
         }
 
-        errorMessage = "LTC 数据没有结束标记。";
+        errorMessage = LocalizedText.T("LtcNoEndMarker");
         return false;
     }
 
@@ -92,7 +92,7 @@ internal static class LithTechLtcNativeDecoder
     {
         if (output.Count >= MaxDecodedBytes)
         {
-            errorMessage = "LTC 解码结果过大。";
+            errorMessage = LocalizedText.T("LtcDecodedTooLarge");
             return false;
         }
 

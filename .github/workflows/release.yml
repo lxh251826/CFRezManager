@@ -53,16 +53,17 @@ jobs:
 
             - Browse, search, extract, and repack LithTech / CrossFire REZ archives.
             - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, WAV, OGG, MP3, LTC, DAT, model, and world resources.
-            - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC/audio/text resources.
+            - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC/audio/text/image resources.
+            - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
             - Parse LithTech SPR files and preview sprite animations by loading referenced DTX frames.
             - Preview more LTB binary models and LTA world/map text files.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
 
-            ## v0.10.0
+            ## v0.11.0
 
-            - Added loose-file browsing support so supported resources outside REZ archives can be previewed directly.
-            - Added WAV, OGG, and MP3 audio metadata parsing, waveform thumbnails, previous/next audio navigation, and a PotPlayer-style audio preview window.
-            - Added OGG playback conversion through NVorbis and MP3 spectrum analysis through NAudio/MediaFoundation.
-            - Optimized the audio spectrum renderer with a WriteableBitmap pixel buffer and improved end-of-playback peak falloff.
-            - Added decoded text previews for more CrossFire resource formats, including CFT/FCF/FXF/FXO/NAV/APF/REF and WAVE header data.
-            - Refreshed Chinese and English documentation.
+            - Added DDS thumbnails and original-size preview support for DXT1/DXT3/DXT5 block-compressed textures and common uncompressed RGB, RGBA, and luminance textures.
+            - Improved DDS texture parsing for mipmap and cubemap byte ranges, with thumbnail scaling to reduce memory use.
+            - Added LZMA-compressed preview paths for common raster image resources, with clearer RAW/LZMA/DXT badges and hover metadata.
+            - Made standalone preview-tool and model/LTC error messages follow the saved Chinese/English language setting.
+            - Switched model-preview free-look movement to WPF render-frame updates for smoother movement and cleaner shutdown cleanup.
+            - Refreshed Chinese and English documentation and added the support QR code.

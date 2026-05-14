@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v0.10.0
+git tag v0.11.0
 git push origin main
-git push origin v0.10.0
+git push origin v0.11.0
 ```
 
 ## 浏览 REZ 资源包
@@ -49,14 +49,16 @@ git push origin v0.10.0
 
 ## 预览能力
 
-- PNG、JPG、BMP、GIF、TIFF、TGA、DTX 图片会懒加载缩略图。
+- PNG、JPG、BMP、GIF、TIFF、DDS、TGA、DTX 图片会懒加载缩略图。
+- DDS 支持 DXT1/DXT3/DXT5 块压缩纹理，也支持常见未压缩 RGB、RGBA 和亮度纹理。
 - DTX 和 TGA 支持普通纹理、CrossFire 常见 LZMA 压缩纹理，以及部分缺失或错位 TGA 头的原始像素纹理。
+- 常见图片格式支持普通文件和 LZMA 压缩文件预览。
 - DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被强制拉伸，过大时可以滚动查看。
 - 图片预览窗口支持同目录/同列表内的上一张、下一张导航，可用按钮或左右方向键切换。
 - WAV、OGG、MP3 音频支持元数据解析、波形缩略图和双击预览。
 - 音频预览窗口支持上一首/下一首、播放/暂停/停止、进度拖动、音量调节，以及接近 PotPlayer 风格的动态频谱。
 - OGG 会通过内置 Vorbis 解码路径转换为临时 WAV 后播放，避免 WPF 直接播放失败。
-- 音频和资源缩略图会在角标显示 `RAW`、`LZMA`、`TXT` 等存储/解码状态。
+- 音频和资源缩略图会在角标显示 `RAW`、`LZMA`、`DXT`、`TXT` 等存储/解码状态。
 - SPR 支持 LithTech 动态精灵解析和动画预览。程序会读取 SPR 中记录的帧率和 DTX 帧路径，从同一个 REZ 包或已解包目录中加载 DTX 帧并自动播放；找不到帧时会回退到帧路径文本预览。
 - LTC 支持缩略图和双击预览。内置解码器会处理普通 LTC、LZMA 压缩 LTC，以及 CrossFire 常见的 `54 83 B2 E1` 头和外层 XOR。解码后的 LTA 文本可以直接查看；如果内容是 LithTech 模型，会尝试渲染模型缩略图并打开独立模型预览窗口。
 - LTB 支持更多二进制 mesh 布局、mesh 表偏移和顶点布局变体，能直接预览更多 CrossFire 导出的模型。
@@ -117,6 +119,15 @@ git push origin v0.10.0
 - 重新打包时，文件扩展名需要为 1 到 4 个字符。
 - 从文件夹创建新 REZ 会保留内容和目录结构，但不会复制原包的字节级布局、偏移、时间戳或整包 MD5。
 
+## v0.11.0 更新
+
+- 新增 DDS 缩略图和原始尺寸预览支持，覆盖 DXT1/DXT3/DXT5 块压缩纹理以及常见未压缩 RGB、RGBA、亮度纹理。
+- 改进 DDS 纹理读取，能识别 mipmap 和 cubemap 数据长度，缩略图会按最大边长缩放以减少内存占用。
+- 常见栅格图片新增 LZMA 压缩资源预览路径，并在缩略图角标和悬停信息中区分 `RAW`、`LZMA`、`DXT` 等存储状态。
+- 独立预览工具和模型/LTC 错误提示跟随保存的中英文语言设置。
+- 模型预览自由视角改用 WPF 渲染帧驱动，移动更平滑，关闭窗口时也会正确释放刷新订阅。
+- 更新中英文说明书和 GitHub Release 文案，并加入支持项目二维码。
+
 ## v0.10.0 更新
 
 - 新增散文件浏览支持，扫描目录里的资源也可以直接预览。
@@ -141,6 +152,7 @@ git push origin v0.10.0
 - `RezArchiveWriter.cs`：从文件夹打包生成新 REZ。
 - `RezCrypto.cs`：REZ 目录表解密和加密逻辑。
 - `ExplorerItem.cs`：程序内的文件夹、散文件和资源项目模型。
+- `LocalizedText.cs`：独立预览工具和解码错误提示的中英文文案。
 - `PreviewTool.cs`：独立预览工具入口。
 - `AudioMetadataDecoder.cs` / `AudioThumbnailRenderer.cs`：音频元数据和波形缩略图渲染。
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`：独立音频预览窗口和频谱绘制。
@@ -153,3 +165,10 @@ git push origin v0.10.0
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`：DAT 对象文本和 LithTech world 地图预览解码。
 - `TextThumbnailRenderer.cs`：文本类资源的缩略图渲染。
 - `VirtualizingWrapPanel.cs`：虚拟化图标网格布局。
+
+
+## 制作不易，鼓励一下
+
+如果这个工具帮到了你，可以请我喝杯咖啡。
+
+![支持项目二维码](afc08a3298aeb1fa378e9d89ca34e35a.jpg)

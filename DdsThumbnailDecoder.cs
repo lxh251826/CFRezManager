@@ -8,46 +8,91 @@ internal static class DdsThumbnailDecoder
 {
     private const int HeaderLength = 128;
     private const int MaxDecodedPixels = 4096 * 4096;
+    private const int ThumbnailDecodeMaxSide = 192;
+    private const uint PixelFormatAlphaPixels = 0x1;
+    private const uint PixelFormatFourCc = 0x4;
+    private const uint PixelFormatRgb = 0x40;
+    private const uint PixelFormatLuminance = 0x20000;
+    private const uint Caps2Cubemap = 0x200;
+    private const uint Caps2CubemapPositiveX = 0x400;
+    private const uint Caps2CubemapNegativeX = 0x800;
+    private const uint Caps2CubemapPositiveY = 0x1000;
+    private const uint Caps2CubemapNegativeY = 0x2000;
+    private const uint Caps2CubemapPositiveZ = 0x4000;
+    private const uint Caps2CubemapNegativeZ = 0x8000;
 
     private enum DdsPixelFormat
     {
         Unknown,
         Dxt1,
         Dxt3,
-        Dxt5
+        Dxt5,
+        Rgb,
+        Luminance
+    }
+
+    private readonly record struct DdsHeader(
+        int Width,
+        int Height,
+        int MipMapCount,
+        uint Caps2,
+        DdsPixelFormat Format,
+        int BitsPerPixel,
+        uint RedMask,
+        uint GreenMask,
+        uint BlueMask,
+        uint AlphaMask,
+        int FirstLevelByteCount);
+
+    public static ImageSource? TryDecode(byte[] data)
+    {
+        return TryDecode(data, 0, ThumbnailDecodeMaxSide, out ImageSource? image, out _)
+            ? image
+            : null;
+    }
+
+    public static ImageSource? TryDecodeOriginal(byte[] data)
+    {
+        return TryDecode(data, 0, maxSide: null, out ImageSource? image, out _)
+            ? image
+            : null;
+    }
+
+    public static bool IsBlockCompressed(byte[] data)
+    {
+        return TryReadHeader(data, 0, out DdsHeader header, out _) && IsBlockCompressed(header.Format);
     }
 
     public static bool TryDecode(byte[] data, int offset, out ImageSource? image, out int byteCount)
     {
+        return TryDecode(data, offset, maxSide: null, out image, out byteCount);
+    }
+
+    private static bool TryDecode(byte[] data, int offset, int? maxSide, out ImageSource? image, out int byteCount)
+    {
         image = null;
         byteCount = 0;
 
-        if (!TryReadHeader(data, offset, out int width, out int height, out DdsPixelFormat format, out byteCount))
+        if (!TryReadHeader(data, offset, out DdsHeader header, out byteCount))
         {
             return false;
         }
 
-        byte[]? pixels = DecodeDxt(data, offset + HeaderLength, width, height, format);
+        byte[]? pixels = IsBlockCompressed(header.Format)
+            ? DecodeDxt(data, offset + HeaderLength, header.Width, header.Height, header.Format)
+            : DecodeUncompressed(data, offset + HeaderLength, header);
         if (pixels is null)
         {
             return false;
         }
 
-        image = CreateImage(width, height, pixels);
+        image = CreateImage(header.Width, header.Height, pixels, maxSide);
         return true;
     }
 
-    private static bool TryReadHeader(
-        byte[] data,
-        int offset,
-        out int width,
-        out int height,
-        out DdsPixelFormat format,
-        out int byteCount)
+    private static bool TryReadHeader(byte[] data, int offset, out DdsHeader header, out int byteCount)
     {
-        width = 0;
-        height = 0;
-        format = DdsPixelFormat.Unknown;
+        header = default;
         byteCount = 0;
 
         if (!HasBytes(data, offset, HeaderLength) ||
@@ -57,36 +102,73 @@ internal static class DdsThumbnailDecoder
             return false;
         }
 
-        height = ReadInt32(data, offset + 12);
-        width = ReadInt32(data, offset + 16);
+        int height = ReadInt32(data, offset + 12);
+        int width = ReadInt32(data, offset + 16);
         if (!IsSafeImageSize(width, height) ||
             ReadInt32(data, offset + 76) != 32)
         {
             return false;
         }
 
+        int mipMapCount = Math.Max(1, ReadInt32(data, offset + 28));
+        uint pixelFormatFlags = ReadUInt32(data, offset + 80);
+        int bitsPerPixel = ReadInt32(data, offset + 88);
+        uint redMask = ReadUInt32(data, offset + 92);
+        uint greenMask = ReadUInt32(data, offset + 96);
+        uint blueMask = ReadUInt32(data, offset + 100);
+        uint alphaMask = ReadUInt32(data, offset + 104);
+        uint caps2 = ReadUInt32(data, offset + 112);
+        DdsPixelFormat format = DdsPixelFormat.Unknown;
+
         ReadOnlySpan<byte> fourCc = data.AsSpan(offset + 84, 4);
-        if (fourCc.SequenceEqual("DXT1"u8))
+        if ((pixelFormatFlags & PixelFormatFourCc) != 0 && fourCc.SequenceEqual("DXT1"u8))
         {
             format = DdsPixelFormat.Dxt1;
         }
-        else if (fourCc.SequenceEqual("DXT3"u8))
+        else if ((pixelFormatFlags & PixelFormatFourCc) != 0 && fourCc.SequenceEqual("DXT3"u8))
         {
             format = DdsPixelFormat.Dxt3;
         }
-        else if (fourCc.SequenceEqual("DXT5"u8))
+        else if ((pixelFormatFlags & PixelFormatFourCc) != 0 && fourCc.SequenceEqual("DXT5"u8))
         {
             format = DdsPixelFormat.Dxt5;
+        }
+        else if ((pixelFormatFlags & PixelFormatRgb) != 0 &&
+                 IsSupportedRgbFormat(bitsPerPixel, redMask, greenMask, blueMask))
+        {
+            format = DdsPixelFormat.Rgb;
+        }
+        else if ((pixelFormatFlags & PixelFormatLuminance) != 0 &&
+                 IsSupportedLuminanceFormat(bitsPerPixel, redMask))
+        {
+            format = DdsPixelFormat.Luminance;
         }
         else
         {
             return false;
         }
 
-        int blockBytes = format == DdsPixelFormat.Dxt1 ? 8 : 16;
-        int compressedBytes = GetDxtLevelByteCount(width, height, blockBytes);
-        byteCount = HeaderLength + compressedBytes;
-        return HasBytes(data, offset, byteCount);
+        int firstLevelBytes = GetLevelByteCount(width, height, format, bitsPerPixel);
+        if (!HasBytes(data, offset + HeaderLength, firstLevelBytes))
+        {
+            return false;
+        }
+
+        header = new DdsHeader(
+            width,
+            height,
+            mipMapCount,
+            caps2,
+            format,
+            bitsPerPixel,
+            redMask,
+            greenMask,
+            blueMask,
+            (pixelFormatFlags & PixelFormatAlphaPixels) != 0 ? alphaMask : 0,
+            firstLevelBytes);
+
+        byteCount = GetAvailableTextureByteCount(data, offset, header);
+        return true;
     }
 
     private static byte[]? DecodeDxt(byte[] data, int sourceOffset, int width, int height, DdsPixelFormat format)
@@ -120,6 +202,52 @@ internal static class DdsThumbnailDecoder
                 }
 
                 source += blockBytes;
+            }
+        }
+
+        return pixels;
+    }
+
+    private static byte[]? DecodeUncompressed(byte[] data, int sourceOffset, DdsHeader header)
+    {
+        int bytesPerPixel = header.BitsPerPixel / 8;
+        if (bytesPerPixel <= 0 || header.FirstLevelByteCount <= 0 ||
+            !HasBytes(data, sourceOffset, header.FirstLevelByteCount))
+        {
+            return null;
+        }
+
+        int rowPitch = GetUncompressedRowPitch(header.Width, header.BitsPerPixel);
+        var pixels = new byte[checked(header.Width * header.Height * 4)];
+        for (int y = 0; y < header.Height; y++)
+        {
+            int sourceRow = sourceOffset + (y * rowPitch);
+            int targetRow = y * header.Width * 4;
+            for (int x = 0; x < header.Width; x++)
+            {
+                uint value = ReadPixelValue(data, sourceRow + (x * bytesPerPixel), bytesPerPixel);
+                byte r;
+                byte g;
+                byte b;
+                if (header.Format == DdsPixelFormat.Luminance)
+                {
+                    r = g = b = ExtractChannel(value, header.RedMask, 0);
+                }
+                else
+                {
+                    r = ExtractChannel(value, header.RedMask, 0);
+                    g = ExtractChannel(value, header.GreenMask, 0);
+                    b = ExtractChannel(value, header.BlueMask, 0);
+                }
+
+                byte a = header.AlphaMask == 0
+                    ? (byte)255
+                    : ExtractChannel(value, header.AlphaMask, 255);
+                int target = targetRow + (x * 4);
+                pixels[target] = b;
+                pixels[target + 1] = g;
+                pixels[target + 2] = r;
+                pixels[target + 3] = a;
             }
         }
 
@@ -290,7 +418,7 @@ internal static class DdsThumbnailDecoder
         target[targetOffset + 3] = alpha;
     }
 
-    private static ImageSource CreateImage(int width, int height, byte[] pixels)
+    private static ImageSource CreateImage(int width, int height, byte[] pixels, int? maxSide)
     {
         BitmapSource source = BitmapSource.Create(
             width,
@@ -301,13 +429,147 @@ internal static class DdsThumbnailDecoder
             null,
             pixels,
             width * 4);
-        source.Freeze();
-        return source;
+
+        if (maxSide is not > 0 || Math.Max(width, height) <= maxSide.Value)
+        {
+            source.Freeze();
+            return source;
+        }
+
+        double scale = maxSide.Value / (double)Math.Max(width, height);
+        var scaled = new TransformedBitmap(source, new ScaleTransform(scale, scale));
+        scaled.Freeze();
+        return scaled;
+    }
+
+    private static bool IsSupportedRgbFormat(int bitsPerPixel, uint redMask, uint greenMask, uint blueMask)
+    {
+        return bitsPerPixel is 16 or 24 or 32 &&
+               redMask != 0 &&
+               greenMask != 0 &&
+               blueMask != 0;
+    }
+
+    private static bool IsSupportedLuminanceFormat(int bitsPerPixel, uint luminanceMask)
+    {
+        return bitsPerPixel is 8 or 16 && luminanceMask != 0;
+    }
+
+    private static bool IsBlockCompressed(DdsPixelFormat format)
+    {
+        return format is DdsPixelFormat.Dxt1 or DdsPixelFormat.Dxt3 or DdsPixelFormat.Dxt5;
     }
 
     private static int GetDxtLevelByteCount(int width, int height, int blockBytes)
     {
-        return checked(((width + 3) / 4) * ((height + 3) / 4) * blockBytes);
+        return checked(((Math.Max(1, width) + 3) / 4) * ((Math.Max(1, height) + 3) / 4) * blockBytes);
+    }
+
+    private static int GetLevelByteCount(int width, int height, DdsPixelFormat format, int bitsPerPixel)
+    {
+        if (IsBlockCompressed(format))
+        {
+            int blockBytes = format == DdsPixelFormat.Dxt1 ? 8 : 16;
+            return GetDxtLevelByteCount(width, height, blockBytes);
+        }
+
+        return checked(GetUncompressedRowPitch(width, bitsPerPixel) * height);
+    }
+
+    private static int GetUncompressedRowPitch(int width, int bitsPerPixel)
+    {
+        return checked(((width * bitsPerPixel) + 31) / 32 * 4);
+    }
+
+    private static int GetAvailableTextureByteCount(byte[] data, int offset, DdsHeader header)
+    {
+        int firstLevelByteCount = HeaderLength + header.FirstLevelByteCount;
+        long totalTextureBytes = GetTotalTextureBytes(header);
+        long totalByteCount = HeaderLength + totalTextureBytes;
+        return totalByteCount <= int.MaxValue && HasBytes(data, offset, (int)totalByteCount)
+            ? (int)totalByteCount
+            : firstLevelByteCount;
+    }
+
+    private static long GetTotalTextureBytes(DdsHeader header)
+    {
+        long total = 0;
+        int width = header.Width;
+        int height = header.Height;
+        int mipLevels = Math.Min(header.MipMapCount, CountPossibleMipLevels(header.Width, header.Height));
+        for (int level = 0; level < mipLevels; level++)
+        {
+            total += GetLevelByteCount(width, height, header.Format, header.BitsPerPixel);
+            width = Math.Max(1, width / 2);
+            height = Math.Max(1, height / 2);
+        }
+
+        return total * GetFaceCount(header.Caps2);
+    }
+
+    private static int CountPossibleMipLevels(int width, int height)
+    {
+        int count = 1;
+        while (width > 1 || height > 1)
+        {
+            width = Math.Max(1, width / 2);
+            height = Math.Max(1, height / 2);
+            count++;
+        }
+
+        return count;
+    }
+
+    private static int GetFaceCount(uint caps2)
+    {
+        if ((caps2 & Caps2Cubemap) == 0)
+        {
+            return 1;
+        }
+
+        int faces = 0;
+        faces += (caps2 & Caps2CubemapPositiveX) != 0 ? 1 : 0;
+        faces += (caps2 & Caps2CubemapNegativeX) != 0 ? 1 : 0;
+        faces += (caps2 & Caps2CubemapPositiveY) != 0 ? 1 : 0;
+        faces += (caps2 & Caps2CubemapNegativeY) != 0 ? 1 : 0;
+        faces += (caps2 & Caps2CubemapPositiveZ) != 0 ? 1 : 0;
+        faces += (caps2 & Caps2CubemapNegativeZ) != 0 ? 1 : 0;
+        return faces == 0 ? 6 : faces;
+    }
+
+    private static uint ReadPixelValue(byte[] data, int offset, int bytesPerPixel)
+    {
+        return bytesPerPixel switch
+        {
+            1 => data[offset],
+            2 => BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset, 2)),
+            3 => (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16)),
+            4 => BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset, 4)),
+            _ => 0
+        };
+    }
+
+    private static byte ExtractChannel(uint value, uint mask, byte defaultValue)
+    {
+        if (mask == 0)
+        {
+            return defaultValue;
+        }
+
+        int shift = 0;
+        while (shift < 32 && ((mask >> shift) & 1) == 0)
+        {
+            shift++;
+        }
+
+        uint max = mask >> shift;
+        if (max == 0)
+        {
+            return defaultValue;
+        }
+
+        uint channel = (value & mask) >> shift;
+        return (byte)((channel * 255 + (max / 2)) / max);
     }
 
     private static bool IsSafeImageSize(int width, int height)
@@ -330,5 +592,10 @@ internal static class DdsThumbnailDecoder
     private static int ReadInt32(byte[] data, int offset)
     {
         return BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(offset, 4));
+    }
+
+    private static uint ReadUInt32(byte[] data, int offset)
+    {
+        return BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset, 4));
     }
 }

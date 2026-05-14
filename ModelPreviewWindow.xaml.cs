@@ -2,7 +2,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
-using System.Windows.Threading;
 using WpfPoint = System.Windows.Point;
 using WpfMouseEventArgs = System.Windows.Input.MouseEventArgs;
 
@@ -21,13 +20,13 @@ public partial class ModelPreviewWindow : Window
     private const double WheelMoveStep = 0.55;
 
     private readonly PerspectiveCamera _camera = new();
-    private readonly DispatcherTimer _movementTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly HashSet<Key> _pressedKeys = new();
     private Point3D _cameraPosition;
-    private DateTime _lastMovementUpdate;
+    private TimeSpan? _lastMovementRenderingTime;
     private double _yaw = InitialViewYaw;
     private double _pitch = InitialViewPitch;
     private bool _ignoreNextMouseMove;
+    private bool _isRenderingSubscribed;
     private bool _isFreeLookActive;
 
     public ModelPreviewWindow(string fileName, LithTechModelDocument document, string? modelInfo = null)
@@ -41,7 +40,6 @@ public partial class ModelPreviewWindow : Window
         ModelViewport.Camera = _camera;
         BuildScene(document);
 
-        _movementTimer.Tick += MovementTimer_Tick;
         ResetCameraState();
         UpdateCamera();
 
@@ -171,8 +169,7 @@ public partial class ModelPreviewWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         EndFreeLook();
-        _movementTimer.Stop();
-        _movementTimer.Tick -= MovementTimer_Tick;
+        StopMovementRendering();
         base.OnClosed(e);
     }
 
@@ -184,12 +181,12 @@ public partial class ModelPreviewWindow : Window
         }
 
         _isFreeLookActive = true;
-        _lastMovementUpdate = DateTime.UtcNow;
+        _lastMovementRenderingTime = null;
         ModelViewport.Focus();
         ModelViewport.CaptureMouse();
         Mouse.OverrideCursor = System.Windows.Input.Cursors.None;
         CenterMouseInViewport();
-        _movementTimer.Start();
+        StartMovementRendering();
     }
 
     private void EndFreeLook()
@@ -201,8 +198,9 @@ public partial class ModelPreviewWindow : Window
 
         _isFreeLookActive = false;
         _ignoreNextMouseMove = false;
+        _lastMovementRenderingTime = null;
         _pressedKeys.Clear();
-        _movementTimer.Stop();
+        StopMovementRendering();
         if (ModelViewport.IsMouseCaptured)
         {
             ModelViewport.ReleaseMouseCapture();
@@ -211,11 +209,41 @@ public partial class ModelPreviewWindow : Window
         Mouse.OverrideCursor = null;
     }
 
-    private void MovementTimer_Tick(object? sender, EventArgs e)
+    private void StartMovementRendering()
     {
-        DateTime now = DateTime.UtcNow;
-        double elapsedSeconds = Math.Clamp((now - _lastMovementUpdate).TotalSeconds, 0, 0.1);
-        _lastMovementUpdate = now;
+        if (_isRenderingSubscribed)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering += CompositionTarget_Rendering;
+        _isRenderingSubscribed = true;
+    }
+
+    private void StopMovementRendering()
+    {
+        if (!_isRenderingSubscribed)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= CompositionTarget_Rendering;
+        _isRenderingSubscribed = false;
+    }
+
+    private void CompositionTarget_Rendering(object? sender, EventArgs e)
+    {
+        TimeSpan renderingTime = e is RenderingEventArgs renderingEventArgs
+            ? renderingEventArgs.RenderingTime
+            : TimeSpan.Zero;
+
+        double elapsedSeconds = 0;
+        if (_lastMovementRenderingTime is TimeSpan lastRenderingTime)
+        {
+            elapsedSeconds = Math.Clamp((renderingTime - lastRenderingTime).TotalSeconds, 0, 0.05);
+        }
+
+        _lastMovementRenderingTime = renderingTime;
         if (!_isFreeLookActive || _pressedKeys.Count == 0 || elapsedSeconds <= 0)
         {
             return;

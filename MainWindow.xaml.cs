@@ -217,6 +217,8 @@ public partial class MainWindow : Window
             ["TextPreviewInfoPlain"] = ("{0}，{1:N0} 字节", "{0}, {1:N0} bytes"),
             ["PreviewDtxLzma"] = ("DTX - LZMA 压缩", "DTX - LZMA compressed"),
             ["PreviewDtxRaw"] = ("DTX - 未压缩", "DTX - uncompressed"),
+            ["PreviewDdsDxt"] = ("DDS - DXT 压缩", "DDS - DXT compressed"),
+            ["PreviewDdsRaw"] = ("DDS - 未压缩", "DDS - uncompressed"),
             ["PreviewTgaLzma"] = ("TGA - LZMA 压缩", "TGA - LZMA compressed"),
             ["PreviewTgaRaw"] = ("TGA - 未压缩", "TGA - uncompressed"),
             ["PreviewTgaRepaired"] = ("TGA - 拼接修复", "TGA - repaired layout"),
@@ -228,6 +230,7 @@ public partial class MainWindow : Window
     {
         _settings = UserSettings.Load();
         _language = ParseLanguage(_settings.Language);
+        LocalizedText.SetLanguage(ToLanguageCode(_language));
         InitializeComponent();
         LanguageComboBox.SelectedIndex = _language == AppLanguage.English ? 1 : 0;
         ViewSizeSlider.Value = ClampViewSize(_settings.ViewSize);
@@ -603,6 +606,8 @@ public partial class MainWindow : Window
         {
             ImageStorageKind.DtxLzmaCompressed => T("PreviewDtxLzma"),
             ImageStorageKind.DtxUncompressed => T("PreviewDtxRaw"),
+            ImageStorageKind.DdsBlockCompressed => T("PreviewDdsDxt"),
+            ImageStorageKind.DdsUncompressed => T("PreviewDdsRaw"),
             ImageStorageKind.TgaLzmaCompressed => T("PreviewTgaLzma"),
             ImageStorageKind.TgaInsertedFooterHeader => T("PreviewTgaRepaired"),
             ImageStorageKind.TgaRawPixels => T("PreviewTgaRawPixels"),
@@ -691,7 +696,7 @@ public partial class MainWindow : Window
 
         if (item.Archive is null || item.ArchiveFile is null)
         {
-            throw new InvalidOperationException("This item cannot be previewed as a file.");
+            throw new InvalidOperationException(LocalizedText.T("PreviewItemNotFile"));
         }
 
         string previewDirectory = Path.Combine(Path.GetTempPath(), "CFRezManager", "PreviewTool");
@@ -709,7 +714,7 @@ public partial class MainWindow : Window
             var info = new FileInfo(item.SourcePath);
             if (!info.Exists || info.Length < 0 || info.Length > maxBytes || info.Length > int.MaxValue)
             {
-                throw new InvalidOperationException($"File is too large to preview: {item.Name}");
+                throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
             }
 
             return File.ReadAllBytes(item.SourcePath);
@@ -720,7 +725,7 @@ public partial class MainWindow : Window
             item.ArchiveFile.Size < 0 ||
             item.ArchiveFile.Size > maxBytes)
         {
-            throw new InvalidOperationException($"File is too large to preview: {item.Name}");
+            throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
         }
 
         byte[] data = new byte[item.ArchiveFile.Size];
@@ -761,7 +766,7 @@ public partial class MainWindow : Window
             return bundledExe;
         }
 
-        return Environment.ProcessPath ?? throw new InvalidOperationException("Cannot locate the preview tool executable.");
+        return Environment.ProcessPath ?? throw new InvalidOperationException(LocalizedText.T("PreviewToolExecutableMissing"));
     }
 
     private void ExplorerItemTemplate_Loaded(object sender, RoutedEventArgs e)
@@ -915,6 +920,7 @@ public partial class MainWindow : Window
         _language = string.Equals(tag, "en", StringComparison.OrdinalIgnoreCase)
             ? AppLanguage.English
             : AppLanguage.Chinese;
+        LocalizedText.SetLanguage(ToLanguageCode(_language));
         _settings.Language = ToLanguageCode(_language);
         _settings.Save();
         ApplyLanguage();

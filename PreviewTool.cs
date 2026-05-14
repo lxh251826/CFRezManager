@@ -104,7 +104,7 @@ internal static class PreviewTool
                 if (!CrossFireLtcDecoder.IsCandidate(extension))
                 {
                     errorMessage = string.IsNullOrWhiteSpace(modelError)
-                        ? $"无法解码模型: {fileName}"
+                        ? LocalizedText.Format("PreviewModelDecodeFailedFileName", fileName)
                         : modelError;
                     return false;
                 }
@@ -155,7 +155,7 @@ internal static class PreviewTool
                 ? textError
                 : !string.IsNullOrWhiteSpace(modelFallbackError)
                     ? modelFallbackError
-                    : $"无法预览此文件: {fileName}";
+                    : LocalizedText.Format("PreviewUnsupportedFileName", fileName);
             return false;
         }
         catch (Exception ex)
@@ -184,10 +184,11 @@ internal static class PreviewTool
         }
         else if (string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase))
         {
-            frames = DdsThumbnailDecoder.TryDecode(data, 0, out ImageSource? image, out _)
-                ? new[] { new ImagePreviewFrame("Original", image!) }
-                : [];
-            info = "DDS";
+            ImageSource? image = DdsThumbnailDecoder.TryDecodeOriginal(data);
+            frames = image is null ? [] : new[] { new ImagePreviewFrame("Original", image) };
+            info = DdsThumbnailDecoder.IsBlockCompressed(data)
+                ? "DDS - DXT compressed"
+                : "DDS - uncompressed";
         }
         else
         {

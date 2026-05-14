@@ -85,7 +85,7 @@ internal static class LithTechModelDecoder
         byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data);
         if (prepared is null)
         {
-            errorMessage = "无法解开模型外层压缩。";
+            errorMessage = LocalizedText.T("ModelOuterCompressionFailed");
             return false;
         }
 
@@ -158,7 +158,7 @@ internal static class LithTechModelDecoder
         }
 
         errorMessage = string.IsNullOrWhiteSpace(converterError)
-            ? "LTC 不是可直接识别的 LTA 文本/压缩文本，也未能用内置 LTC 解码器还原为 LTA。可配置 CFREZ_LTC_TO_LTA 作为外部兜底。"
+            ? LocalizedText.T("ModelLtcNotRecognized")
             : converterError;
         return false;
     }
@@ -197,7 +197,7 @@ internal static class LithTechModelDecoder
 
         if (!TryReadUInt16(data, LtbCommandLineLengthOffset, out ushort commandLineLength))
         {
-            errorMessage = "LTB 文件太短，无法读取文件头。";
+            errorMessage = LocalizedText.T("LtbTooShort");
             return false;
         }
 
@@ -205,17 +205,17 @@ internal static class LithTechModelDecoder
         int position = LtbFirstMeshOffset + commandLineLength;
         if (!TryReadUInt32(data, meshCountOffset, out uint meshCount))
         {
-            errorMessage = "LTB 文件头不完整，无法读取 mesh 数量。";
+            errorMessage = LocalizedText.T("LtbHeaderIncompleteMeshCount");
             return false;
         }
 
         if (meshCount == 0 || meshCount > MaxLtbMeshCount)
         {
-            errorMessage = $"LTB 不是可识别的模型数据，mesh 数量异常: {meshCount}。";
+            errorMessage = LocalizedText.Format("LtbInvalidMeshCount", meshCount);
             return false;
         }
 
-        errorMessage = "LTB 中没有可预览的 mesh 几何数据。";
+        errorMessage = LocalizedText.T("LtbNoPreviewMesh");
         return false;
     }
 
@@ -369,7 +369,7 @@ internal static class LithTechModelDecoder
         {
             if (!TryReadLtbString(data, ref position, out string meshName))
             {
-                errorMessage = $"LTB mesh #{meshIndex + 1} 名称数据不完整。";
+                errorMessage = LocalizedText.Format("LtbMeshNameIncomplete", meshIndex + 1);
                 return false;
             }
 
@@ -397,7 +397,7 @@ internal static class LithTechModelDecoder
 
         if (parsedMeshes.Count == 0)
         {
-            errorMessage = "LTB 中没有可预览的 mesh 几何数据。";
+            errorMessage = LocalizedText.T("LtbNoPreviewMesh");
             return false;
         }
 
@@ -423,7 +423,7 @@ internal static class LithTechModelDecoder
         if (!TryReadUInt16(data, meshBaseOffset + LtbMeshVertexCountOffset, out ushort vertexCount) ||
             !TryReadUInt16(data, meshBaseOffset + LtbMeshFaceCountOffset, out ushort faceCount))
         {
-            errorMessage = $"LTB mesh '{meshName}' 头部不完整。";
+            errorMessage = LocalizedText.Format("LtbMeshHeaderIncomplete", meshName);
             return false;
         }
 
@@ -441,7 +441,7 @@ internal static class LithTechModelDecoder
                 out nextPosition,
                 out errorMessage))
         {
-            errorMessage ??= $"LTB mesh '{meshName}' 使用了暂不支持的类型: {meshType}。";
+            errorMessage ??= LocalizedText.Format("LtbUnsupportedMeshType", meshName, meshType);
             return false;
         }
 
@@ -454,7 +454,7 @@ internal static class LithTechModelDecoder
                 !TryReadSingle(data, readPosition + 4, out float y) ||
                 !TryReadSingle(data, readPosition + 8, out float z))
             {
-                errorMessage = $"LTB mesh '{meshName}' 顶点 #{vertexIndex + 1} 数据不完整。";
+                errorMessage = LocalizedText.Format("LtbMeshVertexIncomplete", meshName, vertexIndex + 1);
                 return false;
             }
 
@@ -468,13 +468,13 @@ internal static class LithTechModelDecoder
         {
             if (!TryReadUInt16(data, readPosition, out ushort triangleIndex))
             {
-                errorMessage = $"LTB mesh '{meshName}' 索引数据不完整。";
+                errorMessage = LocalizedText.Format("LtbMeshIndexDataIncomplete", meshName);
                 return false;
             }
 
             if (triangleIndex >= vertexCount)
             {
-                errorMessage = $"LTB mesh '{meshName}' 索引 {triangleIndex} 超出顶点范围。";
+                errorMessage = LocalizedText.Format("LtbMeshIndexOutOfRange", meshName, triangleIndex);
                 return false;
             }
 
@@ -516,7 +516,7 @@ internal static class LithTechModelDecoder
         int vertexDataOffsetCount = GetLtbVertexDataOffsetCandidates(data, meshBaseOffset, vertexLookupByteCount, vertexDataOffsets);
         if (vertexDataOffsetCount == 0)
         {
-            errorMessage = "LTB mesh 顶点数据不完整。";
+            errorMessage = LocalizedText.T("LtbMeshVertexDataIncomplete");
             return false;
         }
 
@@ -524,7 +524,7 @@ internal static class LithTechModelDecoder
         int meshTypeCount = GetLtbMeshTypeCandidates(data, meshBaseOffset, meshTypes);
         if (meshTypeCount == 0)
         {
-            errorMessage = "LTB mesh 类型数据不完整。";
+            errorMessage = LocalizedText.T("LtbMeshTypeDataIncomplete");
             return false;
         }
 
@@ -548,14 +548,14 @@ internal static class LithTechModelDecoder
                     candidateVertexDataOffset < 0 ||
                     candidateVertexDataOffset + vertexByteCount + indexByteCount > data.Length)
                 {
-                    errorMessage = "LTB mesh 几何数据越界。";
+                    errorMessage = LocalizedText.T("LtbMeshGeometryOutOfRange");
                     continue;
                 }
 
                 int candidateIndexDataOffset = candidateVertexDataOffset + (int)vertexByteCount;
                 if (!AreLtbTriangleIndicesInRange(data, candidateIndexDataOffset, indexCount, vertexCount))
                 {
-                    errorMessage = "LTB mesh 索引超出顶点范围。";
+                    errorMessage = LocalizedText.T("LtbMeshIndexOutOfRangeGeneric");
                     continue;
                 }
 
@@ -569,7 +569,7 @@ internal static class LithTechModelDecoder
                     candidateNextPositions);
                 if (candidateNextPositionCount == 0)
                 {
-                    errorMessage = "LTB mesh 后置数据不完整。";
+                    errorMessage = LocalizedText.T("LtbMeshTrailingDataIncomplete");
                     continue;
                 }
 
@@ -578,7 +578,7 @@ internal static class LithTechModelDecoder
                     int candidateNextPosition = candidateNextPositions[nextIndex];
                     if (requireFollowingMesh && !LooksLikeLtbMeshAt(data, candidateNextPosition))
                     {
-                        errorMessage = "LTB mesh 后置数据未能对齐到下一个 mesh。";
+                        errorMessage = LocalizedText.T("LtbMeshTrailingAlignmentFailed");
                         continue;
                     }
 
@@ -982,7 +982,7 @@ internal static class LithTechModelDecoder
         string? unpackerPath = ResolveModelUnpackerPath();
         if (unpackerPath is null)
         {
-            errorMessage = "缺少 LTB 转换器。请把 Model_Unpacker.exe 放到程序目录的 tools 文件夹，或设置 CFREZ_MODEL_UNPACKER 环境变量。";
+            errorMessage = LocalizedText.T("LtbConverterMissing");
             return null;
         }
 
@@ -1020,7 +1020,7 @@ internal static class LithTechModelDecoder
             using Process? process = Process.Start(startInfo);
             if (process is null)
             {
-                errorMessage = "无法启动 Model_Unpacker.exe。";
+                errorMessage = LocalizedText.T("ModelUnpackerStartFailed");
                 return null;
             }
 
@@ -1029,7 +1029,7 @@ internal static class LithTechModelDecoder
             if (!process.WaitForExit(ExternalConverterTimeoutMilliseconds))
             {
                 TryKillProcess(process);
-                errorMessage = "Model_Unpacker.exe 转换超时。";
+                errorMessage = LocalizedText.T("ModelUnpackerTimeout");
                 return null;
             }
 
@@ -1039,7 +1039,7 @@ internal static class LithTechModelDecoder
             {
                 string detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
                 errorMessage = string.IsNullOrWhiteSpace(detail)
-                    ? $"Model_Unpacker.exe 转换失败，退出码 {process.ExitCode}。"
+                    ? LocalizedText.Format("ModelUnpackerFailedExitCode", process.ExitCode)
                     : detail.Trim();
                 return null;
             }

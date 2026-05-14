@@ -42,8 +42,18 @@ internal static class LithTechModelSceneBuilder
             {
                 BackMaterial = material
             };
+            if (geometry.CanFreeze)
+            {
+                geometry.Freeze();
+            }
+
             scene.Children.Add(geometry);
             meshIndex++;
+        }
+
+        if (scene.CanFreeze)
+        {
+            scene.Freeze();
         }
 
         return scene;

@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v0.10.0
+git tag v0.11.0
 git push origin main
-git push origin v0.10.0
+git push origin v0.11.0
 ```
 
 ## Browse REZ Archives
@@ -49,14 +49,16 @@ Use the bottom-right `Size` slider to switch views: smaller values use a list vi
 
 ## Preview Support
 
-- PNG, JPG, BMP, GIF, TIFF, TGA, and DTX images lazy-load thumbnails.
+- PNG, JPG, BMP, GIF, TIFF, DDS, TGA, and DTX images lazy-load thumbnails.
+- DDS decoding covers DXT1/DXT3/DXT5 block-compressed textures plus common uncompressed RGB, RGBA, and luminance textures.
 - DTX and TGA decoding covers plain textures, LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
+- Common raster image formats can preview both plain files and LZMA-compressed resources.
 - DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
 - The image preview window supports previous/next navigation across the current image list, using either the toolbar buttons or the left/right arrow keys.
 - WAV, OGG, and MP3 audio files support waveform thumbnails and double-click audio preview.
 - Audio preview supports previous/next navigation across the current audio list, playback controls, seeking, volume adjustment, and a PotPlayer-style spectrum display rendered with a lightweight bitmap buffer.
 - OGG files are decoded through the built-in Vorbis path before playback so files that WPF cannot open directly can still preview.
-- Audio thumbnails show whether the source was stored raw or LZMA-compressed inside a REZ archive.
+- Audio and resource thumbnails show storage/decode badges such as `RAW`, `LZMA`, `DXT`, and `TXT`.
 - SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
 - LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
 - LTB files support additional binary mesh-table offsets, vertex layouts, trailing mesh data, and mesh type variants, so more exported CrossFire models can be previewed directly.
@@ -117,6 +119,15 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
 
+## v0.11.0 Changes
+
+- Added DDS thumbnails and original-size preview support for DXT1/DXT3/DXT5 block-compressed textures and common uncompressed RGB, RGBA, and luminance textures.
+- Improved DDS texture parsing for mipmap and cubemap byte ranges, with thumbnail scaling to reduce memory use.
+- Added LZMA-compressed preview paths for common raster image resources, with clearer `RAW`, `LZMA`, and `DXT` badges and hover metadata.
+- Made standalone preview-tool and model/LTC error messages follow the saved Chinese/English language setting.
+- Switched model-preview free-look movement to WPF render-frame updates for smoother movement and cleaner shutdown cleanup.
+- Updated Chinese and English documentation plus GitHub Release notes, and added the support QR code.
+
 ## v0.10.0 Changes
 
 - Added loose-file browsing support so supported resources outside REZ archives can be previewed directly.
@@ -141,6 +152,7 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `RezArchiveWriter.cs`: Packs a folder into a new REZ archive.
 - `RezCrypto.cs`: Directory table decode and encode logic.
 - `ExplorerItem.cs`: In-app folder/archive item model.
+- `LocalizedText.cs`: Chinese and English text for standalone preview-tool and decoder errors.
 - `PreviewTool.cs`: Standalone preview-tool entry point.
 - `AudioMetadataDecoder.cs` / `AudioThumbnailRenderer.cs`: Audio metadata and waveform thumbnail rendering.
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`: Standalone audio preview window and spectrum renderer.
@@ -153,3 +165,9 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.
+
+## Support The Project
+
+Making this tool takes time and care. If it helps you, a small tip is appreciated.
+
+![Support QR code](afc08a3298aeb1fa378e9d89ca34e35a.jpg)

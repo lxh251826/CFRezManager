@@ -20,6 +20,8 @@ public enum ImageStorageKind
     None,
     DtxUncompressed,
     DtxLzmaCompressed,
+    DdsBlockCompressed,
+    DdsUncompressed,
     TgaUncompressed,
     TgaLzmaCompressed,
     TgaInsertedFooterHeader,
@@ -35,7 +37,11 @@ public enum ImageStorageKind
     AudioUncompressed,
     AudioLzmaCompressed,
     ResourceText,
-    ResourceTextLzma
+    ResourceTextLzma,
+    RasterUncompressed,
+    RasterLzmaCompressed,
+    LithTechModel,
+    LithTechModelLzma
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -58,6 +64,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         "gif",
         "tif",
         "tiff",
+        "dds",
         "tga",
         "dtx"
     };
@@ -122,9 +129,17 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     public string? ThumbnailBadgeText => _imageStorageKind switch
     {
-        ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZMA",
+        ImageStorageKind.DtxLzmaCompressed or
+        ImageStorageKind.TgaLzmaCompressed or
+        ImageStorageKind.RasterLzmaCompressed or
+        ImageStorageKind.LithTechModelLzma => "LZMA",
+        ImageStorageKind.DdsBlockCompressed => "DXT",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
-        ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "RAW",
+        ImageStorageKind.DtxUncompressed or
+        ImageStorageKind.DdsUncompressed or
+        ImageStorageKind.TgaUncompressed or
+        ImageStorageKind.RasterUncompressed or
+        ImageStorageKind.LithTechModel => "RAW",
         ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LTC",
         ImageStorageKind.LithTechWorldDat => "DAT",
         ImageStorageKind.LithTechWorldDatLzma => "LZMA",
@@ -141,9 +156,17 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     public string? CompactThumbnailBadgeText => _imageStorageKind switch
     {
-        ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZ",
+        ImageStorageKind.DtxLzmaCompressed or
+        ImageStorageKind.TgaLzmaCompressed or
+        ImageStorageKind.RasterLzmaCompressed or
+        ImageStorageKind.LithTechModelLzma => "LZ",
+        ImageStorageKind.DdsBlockCompressed => "DX",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
-        ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "R",
+        ImageStorageKind.DtxUncompressed or
+        ImageStorageKind.DdsUncompressed or
+        ImageStorageKind.TgaUncompressed or
+        ImageStorageKind.RasterUncompressed or
+        ImageStorageKind.LithTechModel => "R",
         ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LT",
         ImageStorageKind.LithTechWorldDat => "DT",
         ImageStorageKind.LithTechWorldDatLzma => "LZ",
@@ -226,13 +249,27 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             if (ArchiveFile is not null)
             {
-                if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed)
+                if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or
+                    ImageStorageKind.TgaLzmaCompressed or
+                    ImageStorageKind.RasterLzmaCompressed or
+                    ImageStorageKind.LithTechModelLzma)
                 {
                     lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: LZMA compressed");
                 }
-                else if (_imageStorageKind is ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed)
+                else if (_imageStorageKind is ImageStorageKind.DtxUncompressed or
+                         ImageStorageKind.TgaUncompressed or
+                         ImageStorageKind.RasterUncompressed or
+                         ImageStorageKind.LithTechModel)
                 {
                     lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: uncompressed");
+                }
+                else if (_imageStorageKind is ImageStorageKind.DdsBlockCompressed)
+                {
+                    lines.Add("DDS storage: DXT block-compressed");
+                }
+                else if (_imageStorageKind is ImageStorageKind.DdsUncompressed)
+                {
+                    lines.Add("DDS storage: uncompressed pixels");
                 }
                 else if (_imageStorageKind is ImageStorageKind.TgaInsertedFooterHeader)
                 {
@@ -530,10 +567,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             if (LithTechModelDecoder.IsCandidate(extension))
             {
-                return LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _) &&
-                       document is not null
-                    ? LithTechModelThumbnailRenderer.TryRender(document)
-                    : null;
+                if (!LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _) ||
+                    document is null)
+                {
+                    return null;
+                }
+
+                SetImageStorageKind(GetLithTechModelStorageKind(data));
+                return LithTechModelThumbnailRenderer.TryRender(document);
             }
 
             if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
@@ -546,6 +587,12 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             {
                 SetImageStorageKind(GetTgaStorageKind(data));
                 return TgaThumbnailDecoder.TryDecode(data);
+            }
+
+            if (string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageStorageKind(GetDdsStorageKind(data));
+                return DdsThumbnailDecoder.TryDecode(data);
             }
 
             return LoadRasterImage(extension, data, decodeThumbnail: true);
@@ -792,6 +839,12 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return TgaThumbnailDecoder.TryDecodePreviewFrames(data);
             }
 
+            if (string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageStorageKind(GetDdsStorageKind(data));
+                return CreatePreviewFrames(DdsThumbnailDecoder.TryDecodeOriginal(data));
+            }
+
             return LoadRasterPreviewFrames(extension, data);
         }
         catch
@@ -956,7 +1009,15 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     {
         try
         {
-            return LoadBitmapImage(data, decodeThumbnail);
+            if (!TryPrepareRasterImageData(data, out byte[]? imageData, out ImageStorageKind storageKind) ||
+                imageData is null)
+            {
+                return TryLoadPngStoredAsTga(extension, data);
+            }
+
+            ImageSource image = LoadBitmapImage(imageData, decodeThumbnail);
+            SetImageStorageKind(storageKind);
+            return image;
         }
         catch
         {
@@ -968,7 +1029,19 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     {
         try
         {
-            return CreatePreviewFrames(LoadBitmapImage(data, decodeThumbnail: false));
+            if (!TryPrepareRasterImageData(data, out byte[]? imageData, out ImageStorageKind storageKind) ||
+                imageData is null)
+            {
+                return Array.Empty<ImagePreviewFrame>();
+            }
+
+            IReadOnlyList<ImagePreviewFrame> frames = CreatePreviewFrames(LoadBitmapImage(imageData, decodeThumbnail: false));
+            if (frames.Count > 0)
+            {
+                SetImageStorageKind(storageKind);
+            }
+
+            return frames;
         }
         catch
         {
@@ -985,6 +1058,23 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             return frames;
         }
+    }
+
+    private static bool TryPrepareRasterImageData(
+        byte[] data,
+        out byte[]? imageData,
+        out ImageStorageKind storageKind)
+    {
+        if (!LzmaAloneDecoder.IsCompressed(data))
+        {
+            imageData = data;
+            storageKind = ImageStorageKind.RasterUncompressed;
+            return true;
+        }
+
+        imageData = LzmaAloneDecoder.TryPrepareData(data);
+        storageKind = ImageStorageKind.RasterLzmaCompressed;
+        return imageData is not null;
     }
 
     private ImageSource? TryLoadPngStoredAsTga(string extension, byte[] data)
@@ -1096,6 +1186,13 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             : ImageStorageKind.DtxUncompressed;
     }
 
+    private static ImageStorageKind GetDdsStorageKind(byte[] data)
+    {
+        return DdsThumbnailDecoder.IsBlockCompressed(data)
+            ? ImageStorageKind.DdsBlockCompressed
+            : ImageStorageKind.DdsUncompressed;
+    }
+
     private static ImageStorageKind GetTgaStorageKind(byte[] data)
     {
         if (TgaThumbnailDecoder.IsLzmaCompressed(data))
@@ -1131,12 +1228,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             : ImageStorageKind.LithTechSprite;
     }
 
+    private static ImageStorageKind GetLithTechModelStorageKind(byte[] data)
+    {
+        return LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.LithTechModelLzma
+            : ImageStorageKind.LithTechModel;
+    }
+
     private static string GetImageFormatLabel(ImageStorageKind storageKind)
     {
         return storageKind switch
         {
             ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.DtxUncompressed => "DTX",
+            ImageStorageKind.DdsBlockCompressed or ImageStorageKind.DdsUncompressed => "DDS",
             ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
+            ImageStorageKind.RasterLzmaCompressed or ImageStorageKind.RasterUncompressed => "Image",
+            ImageStorageKind.LithTechModelLzma or ImageStorageKind.LithTechModel => "Model",
             ImageStorageKind.LithTechWorldDat or ImageStorageKind.LithTechWorldDatLzma or ImageStorageKind.CrossFireDat or ImageStorageKind.CrossFireDatLzma => "DAT",
             ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",
             ImageStorageKind.AudioUncompressed or ImageStorageKind.AudioLzmaCompressed => "Audio",
