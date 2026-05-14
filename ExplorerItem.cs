@@ -22,7 +22,9 @@ public enum ImageStorageKind
     TgaUncompressed,
     TgaLzmaCompressed,
     TgaInsertedFooterHeader,
-    TgaRawPixels
+    TgaRawPixels,
+    LtcText,
+    LtcModel
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -85,6 +87,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZMA",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
         ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "RAW",
+        ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LTC",
         _ => null
     };
 
@@ -93,6 +96,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZ",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
         ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "R",
+        ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LT",
         _ => null
     };
 
@@ -177,6 +181,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.TgaRawPixels)
                 {
                     lines.Add("TGA storage: repaired raw pixel data");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LtcText)
+                {
+                    lines.Add("LTC preview: decoded text");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LtcModel)
+                {
+                    lines.Add("LTC preview: decoded model");
                 }
 
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
@@ -345,6 +357,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                Archive is not null &&
                ArchiveFile is not null &&
                (EncTextDecoder.IsCandidate(Name, ArchiveFile.Extension) ||
+                CrossFireLtcDecoder.IsCandidate(ArchiveFile.Extension) ||
                 TextPreviewDecoder.IsPlainTextExtension(ArchiveFile.Extension));
     }
 
@@ -373,6 +386,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return null;
             }
 
+            if (CrossFireLtcDecoder.IsCandidate(extension))
+            {
+                return LoadLtcThumbnail(data);
+            }
+
             if (LithTechModelDecoder.IsCandidate(extension))
             {
                 return LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _) &&
@@ -399,6 +417,37 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         {
             return null;
         }
+    }
+
+    private ImageSource? LoadLtcThumbnail(byte[] data)
+    {
+        if (!CrossFireLtcDecoder.TryDecodeText(data, Name, out CrossFireLtcTextDocument? document, out _) ||
+            document is null)
+        {
+            return null;
+        }
+
+        if (document.Text.Contains("(lt-model", StringComparison.OrdinalIgnoreCase) &&
+            LithTechModelDecoder.TryParseLtaText(
+                document.Text,
+                Name,
+                document.StorageDescription,
+                data.Length,
+                document.DecodedByteCount,
+                out LithTechModelDocument? modelDocument,
+                out _) &&
+            modelDocument is not null)
+        {
+            ImageSource? modelThumbnail = LithTechModelThumbnailRenderer.TryRender(modelDocument);
+            if (modelThumbnail is not null)
+            {
+                SetImageStorageKind(ImageStorageKind.LtcModel);
+                return modelThumbnail;
+            }
+        }
+
+        SetImageStorageKind(ImageStorageKind.LtcText);
+        return TextThumbnailRenderer.TryRender(Name, document.Text, "LTC");
     }
 
     private ImageSource? LoadRezPreviewImage()
@@ -463,6 +512,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     TextPreviewStorageKind.EncBase64,
                     data.Length,
                     decodedBytes.Length);
+            }
+
+            if (CrossFireLtcDecoder.IsCandidate(extension))
+            {
+                if (!CrossFireLtcDecoder.TryDecodeText(data, Name, out CrossFireLtcTextDocument? ltcDocument, out _) ||
+                    ltcDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    ltcDocument.Text,
+                    $"{ltcDocument.StorageDescription} / {ltcDocument.EncodingName}",
+                    TextPreviewStorageKind.LtcConverted,
+                    ltcDocument.SourceByteCount,
+                    ltcDocument.DecodedByteCount);
             }
 
             if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))

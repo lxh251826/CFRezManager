@@ -76,6 +76,7 @@ internal static class PreviewTool
             string fileName = Path.GetFileName(filePath);
             string extension = Path.GetExtension(filePath).TrimStart('.');
             byte[] data = File.ReadAllBytes(filePath);
+            string? modelFallbackError = null;
 
             if (LithTechModelDecoder.IsCandidate(extension))
             {
@@ -87,10 +88,15 @@ internal static class PreviewTool
                     return true;
                 }
 
-                errorMessage = string.IsNullOrWhiteSpace(modelError)
-                    ? $"无法解码模型: {fileName}"
-                    : modelError;
-                return false;
+                if (!CrossFireLtcDecoder.IsCandidate(extension))
+                {
+                    errorMessage = string.IsNullOrWhiteSpace(modelError)
+                        ? $"无法解码模型: {fileName}"
+                        : modelError;
+                    return false;
+                }
+
+                modelFallbackError = modelError;
             }
 
             if (ImageExtensions.Contains(extension) &&
@@ -100,13 +106,17 @@ internal static class PreviewTool
                 return true;
             }
 
-            if (TryCreateTextWindow(fileName, extension, data, out window))
+            if (TryCreateTextWindow(fileName, extension, data, out window, out string? textError))
             {
                 window!.ShowInTaskbar = true;
                 return true;
             }
 
-            errorMessage = $"无法预览此文件: {fileName}";
+            errorMessage = !string.IsNullOrWhiteSpace(textError)
+                ? textError
+                : !string.IsNullOrWhiteSpace(modelFallbackError)
+                    ? modelFallbackError
+                    : $"无法预览此文件: {fileName}";
             return false;
         }
         catch (Exception ex)
@@ -166,9 +176,29 @@ internal static class PreviewTool
         return true;
     }
 
-    private static bool TryCreateTextWindow(string fileName, string extension, byte[] data, out Window? window)
+    private static bool TryCreateTextWindow(
+        string fileName,
+        string extension,
+        byte[] data,
+        out Window? window,
+        out string? errorMessage)
     {
         window = null;
+        errorMessage = null;
+
+        if (CrossFireLtcDecoder.IsCandidate(extension))
+        {
+            if (!CrossFireLtcDecoder.TryDecodeText(data, fileName, out CrossFireLtcTextDocument? ltcDocument, out errorMessage) ||
+                ltcDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{ltcDocument.StorageDescription} / {ltcDocument.EncodingName}, {ltcDocument.SourceByteCount:N0} bytes -> {ltcDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, ltcDocument.Text, info);
+            return true;
+        }
+
         if (EncTextDecoder.IsCandidate(fileName, extension))
         {
             if (!EncTextDecoder.TryDecode(data, out byte[] decodedBytes) ||

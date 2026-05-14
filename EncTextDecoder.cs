@@ -5,7 +5,8 @@ namespace CFRezManager;
 public enum TextPreviewStorageKind
 {
     Plain,
-    EncBase64
+    EncBase64,
+    LtcConverted
 }
 
 public sealed record TextPreviewDocument(

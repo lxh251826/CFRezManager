@@ -14,6 +14,13 @@ artifacts/
 *.log
 *.tmp
 *.temp
+__pycache__/
+*.pyc
+
+# Local reverse-engineering / analysis scratch data
+tools_downloads/
+_analysis/
+$dst/
 
 # Local REZ samples and extracted game data
 Pak-CF/

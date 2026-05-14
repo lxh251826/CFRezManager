@@ -29,6 +29,7 @@ internal static class LithTechModelDecoder
 {
     private const int MaxParseDepth = 256;
     private const int MaxLtbMeshCount = 4096;
+    private const int ExternalConverterTimeoutMilliseconds = 15_000;
 
     // Offsets follow Cote-Duke's LTB2X loader notes for LithTech Jupiter LTB meshes.
     private const int LtbCommandLineLengthOffset = 84;
@@ -56,7 +57,8 @@ internal static class LithTechModelDecoder
     public static bool IsCandidate(string extension)
     {
         return string.Equals(extension, "lta", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(extension, "ltb", StringComparison.OrdinalIgnoreCase);
+               string.Equals(extension, "ltb", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, "ltc", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool TryDecode(byte[] data, string fallbackName, out LithTechModelDocument? document)
@@ -73,6 +75,11 @@ internal static class LithTechModelDecoder
     {
         document = null;
         errorMessage = null;
+
+        if (string.Equals(extension, "ltc", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryDecodeLtc(data, fallbackName, out document, out errorMessage);
+        }
 
         byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data);
         if (prepared is null)
@@ -108,6 +115,51 @@ internal static class LithTechModelDecoder
         string storageDescription = ReferenceEquals(prepared, data) ? "LTA text" : "LZMA-compressed LTA";
         string text = Encoding.ASCII.GetString(prepared);
         return TryParseLtaText(text, fallbackName, storageDescription, data.Length, prepared.Length, out document, out errorMessage);
+    }
+
+    private static bool TryDecodeLtc(
+        byte[] data,
+        string fallbackName,
+        out LithTechModelDocument? document,
+        out string? errorMessage)
+    {
+        document = null;
+        errorMessage = null;
+
+        byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data);
+        if (prepared is not null)
+        {
+            string ltaText = Encoding.ASCII.GetString(prepared);
+            if (ltaText.Contains("(lt-model", StringComparison.OrdinalIgnoreCase) &&
+                TryParseLtaText(
+                    ltaText,
+                    fallbackName,
+                    ReferenceEquals(prepared, data) ? "LTC text" : "LZMA-compressed LTC",
+                    data.Length,
+                    prepared.Length,
+                    out document,
+                    out errorMessage))
+            {
+                return true;
+            }
+        }
+
+        if (CrossFireLtcDecoder.TryConvertToText(data, fallbackName, out CrossFireLtcTextDocument? converted, out string? converterError) &&
+            converted is not null)
+        {
+            return TryParseLtaText(converted.Text, fallbackName, converted.StorageDescription, data.Length, converted.DecodedByteCount, out document, out errorMessage);
+        }
+
+        if (CrossFireLtcDecoder.HasCrossFireMagic(data))
+        {
+            errorMessage = CrossFireLtcDecoder.GetUnsupportedMessage(converterError);
+            return false;
+        }
+
+        errorMessage = string.IsNullOrWhiteSpace(converterError)
+            ? "LTC 不是可直接识别的 LTA 文本/压缩文本，也未能用内置 LTC 解码器还原为 LTA。可配置 CFREZ_LTC_TO_LTA 作为外部兜底。"
+            : converterError;
+        return false;
     }
 
     private static bool TryParseLtbBinary(
@@ -413,7 +465,7 @@ internal static class LithTechModelDecoder
         return true;
     }
 
-    private static bool TryParseLtaText(
+    internal static bool TryParseLtaText(
         string text,
         string fallbackName,
         string storageDescription,
@@ -506,10 +558,17 @@ internal static class LithTechModelDecoder
                 return null;
             }
 
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(ExternalConverterTimeoutMilliseconds))
+            {
+                TryKillProcess(process);
+                errorMessage = "Model_Unpacker.exe 转换超时。";
+                return null;
+            }
 
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
             if (process.ExitCode != 0 || !File.Exists(outputPath))
             {
                 string detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
@@ -544,6 +603,18 @@ internal static class LithTechModelDecoder
         ];
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static void TryKillProcess(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // External converters may already have exited after the timeout check.
+        }
     }
 
     private static void TryDeleteDirectory(string directory)
