@@ -55,5 +55,6 @@ jobs:
             - 支持列表 / 平铺大小切换、文件信息提示和快速搜索
             - 支持 PNG、JPG、BMP、GIF、TIFF、TGA、DTX 缩略图和预览
             - 支持 ENC / Base64 与常见文本文件预览
+            - 支持 LTC 缩略图、文本查看和 LithTech 模型预览，兼容 CrossFire 常见 LTC 外层 XOR
             - 支持 LithTech / LTB 模型缩略图和独立模型预览窗口
             - 改进 DTX / TGA 解码，兼容 CF 常见 LZMA 压缩纹理和部分异常 TGA 数据

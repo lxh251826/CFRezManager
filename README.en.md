@@ -42,6 +42,8 @@ PNG, JPG, BMP, GIF, TIFF, TGA, and DTX image files inside REZ archives lazy-load
 DTX and TGA decoding covers plain textures, the LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
 Double-click a decodable image file to open an original-size preview window. The image is not stretched; if it is larger than the screen, use the preview window scroll bars.
 
+LTC files support thumbnails and double-click previews. The app first uses built-in decoders for plain LTC, LZMA-compressed LTC, and the CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR; decoded LTA text opens directly in the text preview window. If the content is a LithTech model, the app tries to render a model thumbnail and can open the standalone model preview window. LTC files that still cannot be recognized can fall back to `CFREZ_LTC_TO_LTA` or an external converter placed under the `tools` folder.
+
 Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.
@@ -89,4 +91,6 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `RezArchiveWriter.cs`: Packs a folder into a new REZ archive.
 - `RezCrypto.cs`: Directory table decode and encode logic.
 - `ExplorerItem.cs`: In-app folder/archive item model.
+- `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
+- `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.
