@@ -82,6 +82,7 @@ public partial class MainWindow : Window
     private ExplorerItem? _searchIndexTaskRoot;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
+    private readonly record struct ExtractionJob(ExplorerItem Item, string RelativePath);
     private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
 
     public double TileItemWidth
@@ -196,6 +197,12 @@ public partial class MainWindow : Window
             ["PreviewOpened"] = ("已打开预览 {0}", "Opened preview {0}"),
             ["PreviewUnsupported"] = ("无法预览 {0}", "Cannot preview {0}"),
             ["PreviewFailed"] = ("预览失败", "Preview failed"),
+            ["PreviewDtxLzma"] = ("DTX - LZMA 压缩", "DTX - LZMA compressed"),
+            ["PreviewDtxRaw"] = ("DTX - 未压缩", "DTX - uncompressed"),
+            ["PreviewTgaLzma"] = ("TGA - LZMA 压缩", "TGA - LZMA compressed"),
+            ["PreviewTgaRaw"] = ("TGA - 未压缩", "TGA - uncompressed"),
+            ["PreviewTgaRepaired"] = ("TGA - 拼接修复", "TGA - repaired layout"),
+            ["PreviewTgaRawPixels"] = ("TGA - 原始像素修复", "TGA - repaired raw pixels"),
             ["ErrorStatus"] = ("{0}: {1}", "{0}: {1}")
         };
 
@@ -282,7 +289,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        await ExtractItemsAsync(new[] { _rootItem }, T("PreparingRezArchives"));
+        await ExtractItemsAsync(new[] { _rootItem }, T("PreparingRezArchives"), preserveOutputRelativePaths: true);
     }
 
     private async void ExtractSelectedMenuItem_Click(object sender, RoutedEventArgs e)
@@ -294,10 +301,13 @@ public partial class MainWindow : Window
         }
 
         string label = selectedItems.Count == 1 ? selectedItems[0].Name : FormatText("SelectedItemsLabel", selectedItems.Count);
-        await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label));
+        await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label), preserveOutputRelativePaths: false);
     }
 
-    private async Task ExtractItemsAsync(IReadOnlyCollection<ExplorerItem> items, string preparingMessage)
+    private async Task ExtractItemsAsync(
+        IReadOnlyCollection<ExplorerItem> items,
+        string preparingMessage,
+        bool preserveOutputRelativePaths)
     {
         if (items.Count == 0)
         {
@@ -319,25 +329,19 @@ public partial class MainWindow : Window
 
             await Task.Run(() => LoadItemsForExtraction(items));
 
-            var files = new List<ExplorerItem>();
-            foreach (ExplorerItem item in items)
-            {
-                CollectExtractableFiles(item, files);
-            }
-
-            files = files.Distinct().ToList();
-            _extractableFileCount = files.Count;
-            if (files.Count == 0)
+            List<ExtractionJob> jobs = BuildExtractionJobs(items, preserveOutputRelativePaths);
+            _extractableFileCount = jobs.Count;
+            if (jobs.Count == 0)
             {
                 SetStatus("NoFilesToExtract");
                 return;
             }
 
-            int workerCount = GetExtractionWorkerCount(files.Count);
-            SetStatus("ExtractingStart", files.Count, workerCount);
+            int workerCount = GetExtractionWorkerCount(jobs.Count);
+            SetStatus("ExtractingStart", jobs.Count, workerCount);
             WorkProgress.IsIndeterminate = false;
             WorkProgress.Minimum = 0;
-            WorkProgress.Maximum = files.Count;
+            WorkProgress.Maximum = jobs.Count;
             WorkProgress.Value = 0;
 
             var progress = new Progress<ExtractionProgress>(state =>
@@ -346,9 +350,9 @@ public partial class MainWindow : Window
                 SetStatus("ExtractingProgress", state.Completed, state.Total, state.FileName);
             });
 
-            await Task.Run(() => ExtractFilesParallel(outputDirectory, items, files, workerCount, progress));
+            await Task.Run(() => ExtractFilesParallel(outputDirectory, jobs, workerCount, progress));
 
-            SetStatus("ExtractedResult", files.Count, outputDirectory);
+            SetStatus("ExtractedResult", jobs.Count, outputDirectory);
         }
         catch (Exception ex)
         {
@@ -384,8 +388,8 @@ public partial class MainWindow : Window
 
         try
         {
-            ImageSource? imageSource = await item.LoadPreviewImageAsync();
-            if (imageSource is null)
+            IReadOnlyList<ImagePreviewFrame> frames = await item.LoadPreviewFramesAsync();
+            if (frames.Count == 0)
             {
                 string message = FormatText("PreviewUnsupported", item.Name);
                 SetStatusText(message);
@@ -393,7 +397,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var preview = new ImagePreviewWindow(item.Name, imageSource)
+            var preview = new ImagePreviewWindow(item.Name, frames, FormatImagePreviewInfo(item))
             {
                 Owner = this
             };
@@ -408,6 +412,20 @@ public partial class MainWindow : Window
         {
             SetBusy(false, keepSearchEnabled: true);
         }
+    }
+
+    private string? FormatImagePreviewInfo(ExplorerItem item)
+    {
+        return item.ImageStorageKind switch
+        {
+            ImageStorageKind.DtxLzmaCompressed => T("PreviewDtxLzma"),
+            ImageStorageKind.DtxUncompressed => T("PreviewDtxRaw"),
+            ImageStorageKind.TgaLzmaCompressed => T("PreviewTgaLzma"),
+            ImageStorageKind.TgaUncompressed => T("PreviewTgaRaw"),
+            ImageStorageKind.TgaInsertedFooterHeader => T("PreviewTgaRepaired"),
+            ImageStorageKind.TgaRawPixels => T("PreviewTgaRawPixels"),
+            _ => null
+        };
     }
 
     private void ExplorerItemTemplate_Loaded(object sender, RoutedEventArgs e)
@@ -1387,16 +1405,103 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void CollectExtractableFiles(ExplorerItem item, List<ExplorerItem> files)
+    private static List<ExtractionJob> BuildExtractionJobs(IEnumerable<ExplorerItem> items, bool preserveOutputRelativePaths)
+    {
+        var jobs = new List<ExtractionJob>();
+        var seenItems = new HashSet<ExplorerItem>();
+        var usedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ExplorerItem item in items)
+        {
+            if (preserveOutputRelativePaths)
+            {
+                CollectExtractionJobsPreservingPaths(item, jobs, seenItems, usedRelativePaths);
+            }
+            else
+            {
+                string selectedRootPath = SanitizePathSegment(item.Name);
+                CollectExtractionJobsRelativeToSelection(item, selectedRootPath, jobs, seenItems, usedRelativePaths);
+            }
+        }
+
+        return jobs;
+    }
+
+    private static void CollectExtractionJobsPreservingPaths(
+        ExplorerItem item,
+        List<ExtractionJob> jobs,
+        HashSet<ExplorerItem> seenItems,
+        HashSet<string> usedRelativePaths)
     {
         if (item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
         {
-            files.Add(item);
+            AddExtractionJob(item, item.OutputRelativePath, jobs, seenItems, usedRelativePaths);
         }
 
         foreach (ExplorerItem child in item.Children)
         {
-            CollectExtractableFiles(child, files);
+            CollectExtractionJobsPreservingPaths(child, jobs, seenItems, usedRelativePaths);
+        }
+    }
+
+    private static void CollectExtractionJobsRelativeToSelection(
+        ExplorerItem item,
+        string relativePath,
+        List<ExtractionJob> jobs,
+        HashSet<ExplorerItem> seenItems,
+        HashSet<string> usedRelativePaths)
+    {
+        if (item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
+        {
+            AddExtractionJob(item, relativePath, jobs, seenItems, usedRelativePaths);
+            return;
+        }
+
+        foreach (ExplorerItem child in item.Children)
+        {
+            string childRelativePath = CombineRelativePath(relativePath, SanitizePathSegment(child.Name));
+            CollectExtractionJobsRelativeToSelection(child, childRelativePath, jobs, seenItems, usedRelativePaths);
+        }
+    }
+
+    private static void AddExtractionJob(
+        ExplorerItem item,
+        string relativePath,
+        List<ExtractionJob> jobs,
+        HashSet<ExplorerItem> seenItems,
+        HashSet<string> usedRelativePaths)
+    {
+        if (!seenItems.Add(item))
+        {
+            return;
+        }
+
+        string safeRelativePath = string.IsNullOrWhiteSpace(relativePath)
+            ? SanitizePathSegment(item.Name)
+            : relativePath;
+        jobs.Add(new ExtractionJob(item, MakeUniqueRelativePath(safeRelativePath, usedRelativePaths)));
+    }
+
+    private static string MakeUniqueRelativePath(string relativePath, HashSet<string> usedRelativePaths)
+    {
+        if (usedRelativePaths.Add(relativePath))
+        {
+            return relativePath;
+        }
+
+        string? directory = Path.GetDirectoryName(relativePath);
+        string fileName = Path.GetFileNameWithoutExtension(relativePath);
+        string extension = Path.GetExtension(relativePath);
+        for (int index = 2; ; index++)
+        {
+            string candidateName = $"{fileName} ({index}){extension}";
+            string candidate = string.IsNullOrEmpty(directory)
+                ? candidateName
+                : Path.Combine(directory, candidateName);
+            if (usedRelativePaths.Add(candidate))
+            {
+                return candidate;
+            }
         }
     }
 
@@ -1499,12 +1604,11 @@ public partial class MainWindow : Window
 
     private static void ExtractFilesParallel(
         string outputDirectory,
-        IEnumerable<ExplorerItem> rootItems,
-        IReadOnlyList<ExplorerItem> files,
+        IReadOnlyList<ExtractionJob> jobs,
         int workerCount,
         IProgress<ExtractionProgress> progress)
     {
-        foreach (string directory in CollectOutputDirectories(rootItems))
+        foreach (string directory in CollectOutputDirectories(jobs))
         {
             Directory.CreateDirectory(Path.Combine(outputDirectory, directory));
         }
@@ -1513,15 +1617,16 @@ public partial class MainWindow : Window
         long nextReportAt = 0;
         var options = new ParallelOptions { MaxDegreeOfParallelism = workerCount };
 
-        Parallel.ForEach(files, options, item =>
+        Parallel.ForEach(jobs, options, job =>
         {
-            string destinationPath = Path.Combine(outputDirectory, item.OutputRelativePath);
+            ExplorerItem item = job.Item;
+            string destinationPath = Path.Combine(outputDirectory, job.RelativePath);
             RezArchiveReader.ExtractFile(item.Archive!, item.ArchiveFile!, destinationPath);
 
             int done = Interlocked.Increment(ref completed);
-            if (done == files.Count || ShouldReportProgress(ref nextReportAt))
+            if (done == jobs.Count || ShouldReportProgress(ref nextReportAt))
             {
-                progress.Report(new ExtractionProgress(done, files.Count, item.Name));
+                progress.Report(new ExtractionProgress(done, jobs.Count, item.Name));
             }
         });
     }
@@ -1543,35 +1648,19 @@ public partial class MainWindow : Window
         return Math.Clamp(Environment.ProcessorCount, 2, 8);
     }
 
-    private static IEnumerable<string> CollectOutputDirectories(ExplorerItem item)
+    private static IEnumerable<string> CollectOutputDirectories(IEnumerable<ExtractionJob> jobs)
     {
         var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        CollectOutputDirectories(item, directories);
-        return directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static IEnumerable<string> CollectOutputDirectories(IEnumerable<ExplorerItem> items)
-    {
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ExplorerItem item in items)
+        foreach (ExtractionJob job in jobs)
         {
-            CollectOutputDirectories(item, directories);
+            string? directory = Path.GetDirectoryName(job.RelativePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                directories.Add(directory);
+            }
         }
 
         return directories.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static void CollectOutputDirectories(ExplorerItem item, HashSet<string> directories)
-    {
-        if (item.IsContainer && !string.IsNullOrEmpty(item.OutputRelativePath))
-        {
-            directories.Add(item.OutputRelativePath);
-        }
-
-        foreach (ExplorerItem child in item.Children)
-        {
-            CollectOutputDirectories(child, directories);
-        }
     }
 
     private static int CountItems(ExplorerItem item, ExplorerItemKind kind)

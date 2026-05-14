@@ -52,9 +52,16 @@ internal static class DtxThumbnailDecoder
         return TryDecode(data, maxSide: null);
     }
 
+    public static bool IsLzmaCompressed(byte[] data)
+    {
+        return LzmaAloneDecoder.IsCompressed(data);
+    }
+
     private static ImageSource? TryDecode(byte[] data, int? maxSide)
     {
-        if (!TryReadHeader(data, out DtxHeader header) ||
+        byte[]? dtxData = LzmaAloneDecoder.TryPrepareData(data);
+        if (dtxData is null ||
+            !TryReadHeader(dtxData, out DtxHeader header) ||
             !IsSafeImageSize(header.Width, header.Height))
         {
             return null;
@@ -63,12 +70,12 @@ internal static class DtxThumbnailDecoder
         DtxPixelFormat format = ResolvePixelFormat(header);
         byte[]? pixels = format switch
         {
-            DtxPixelFormat.Bgra32 => DecodeBgra32(data, header, preserveAlpha: true),
-            DtxPixelFormat.Rgba32 => DecodeRgba32(data, header),
-            DtxPixelFormat.Palette8 => DecodePalette8(data, header),
-            DtxPixelFormat.Dxt1 => DecodeDxt(data, header, DtxPixelFormat.Dxt1),
-            DtxPixelFormat.Dxt3 => DecodeDxt(data, header, DtxPixelFormat.Dxt3),
-            DtxPixelFormat.Dxt5 => DecodeDxt(data, header, DtxPixelFormat.Dxt5),
+            DtxPixelFormat.Bgra32 => DecodeBgra32(dtxData, header, preserveAlpha: true),
+            DtxPixelFormat.Rgba32 => DecodeRgba32(dtxData, header),
+            DtxPixelFormat.Palette8 => DecodePalette8(dtxData, header),
+            DtxPixelFormat.Dxt1 => DecodeDxt(dtxData, header, DtxPixelFormat.Dxt1),
+            DtxPixelFormat.Dxt3 => DecodeDxt(dtxData, header, DtxPixelFormat.Dxt3),
+            DtxPixelFormat.Dxt5 => DecodeDxt(dtxData, header, DtxPixelFormat.Dxt5),
             _ => null
         };
 

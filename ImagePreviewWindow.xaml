@@ -9,20 +9,51 @@
         Background="#111827"
         MinWidth="320"
         MinHeight="240">
-    <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                  VerticalScrollBarVisibility="Auto"
-                  Padding="12"
-                  Background="#111827">
-        <Border Background="#0B1120"
+    <DockPanel Background="#111827">
+        <Border x:Name="PreviewInfoBar"
+                DockPanel.Dock="Top"
+                Background="#1F2937"
                 BorderBrush="#374151"
-                BorderThickness="1"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top">
-            <Image x:Name="PreviewImage"
-                   Stretch="None"
-                   HorizontalAlignment="Left"
-                   VerticalAlignment="Top"
-                   SnapsToDevicePixels="True"/>
+                BorderThickness="0,0,0,1"
+                Padding="12,7"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="PreviewInfoText"
+                           Foreground="#E5E7EB"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           Margin="0,0,12,0"/>
+                <ComboBox x:Name="FrameSelector"
+                          Grid.Column="1"
+                          Width="240"
+                          Height="26"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="FrameSelector_SelectionChanged"
+                          Visibility="Collapsed"/>
+            </Grid>
         </Border>
-    </ScrollViewer>
+
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="12"
+                      Background="#111827">
+            <Border Background="#0B1120"
+                    BorderBrush="#374151"
+                    BorderThickness="1"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top">
+                <Image x:Name="PreviewImage"
+                       Stretch="None"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Top"
+                       SnapsToDevicePixels="True"/>
+            </Border>
+        </ScrollViewer>
+    </DockPanel>
 </Window>

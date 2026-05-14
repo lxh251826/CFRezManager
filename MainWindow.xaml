@@ -162,8 +162,23 @@
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Visibility="Collapsed">
-                    <Image Source="{Binding ThumbnailSource}"
-                           Stretch="Uniform"/>
+                    <Grid ClipToBounds="True">
+                        <Image Source="{Binding ThumbnailSource}"
+                               Stretch="Uniform"/>
+                        <Border x:Name="ThumbnailBadge"
+                                Background="#D9111827"
+                                CornerRadius="2"
+                                Padding="3,1"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Visibility="Collapsed">
+                            <TextBlock Text="{Binding ThumbnailBadgeText}"
+                                       Foreground="#FFFFFF"
+                                       FontSize="9"
+                                       FontWeight="SemiBold"
+                                       LineHeight="10"/>
+                        </Border>
+                    </Grid>
                 </Border>
 
                 <TextBlock Grid.Row="1"
@@ -183,6 +198,9 @@
                 <DataTrigger Binding="{Binding HasThumbnail}" Value="True">
                     <Setter TargetName="FileIcon" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="ThumbnailFrame" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasThumbnailBadge}" Value="True">
+                    <Setter TargetName="ThumbnailBadge" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -235,8 +253,23 @@
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Visibility="Collapsed">
-                    <Image Source="{Binding ThumbnailSource}"
-                           Stretch="Uniform"/>
+                    <Grid ClipToBounds="True">
+                        <Image Source="{Binding ThumbnailSource}"
+                               Stretch="Uniform"/>
+                        <Border x:Name="ListThumbnailBadge"
+                                Background="#D9111827"
+                                CornerRadius="1"
+                                Padding="1,0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Visibility="Collapsed">
+                            <TextBlock Text="{Binding CompactThumbnailBadgeText}"
+                                       Foreground="#FFFFFF"
+                                       FontSize="7"
+                                       FontWeight="SemiBold"
+                                       LineHeight="8"/>
+                        </Border>
+                    </Grid>
                 </Border>
 
                 <TextBlock Grid.Column="1"
@@ -268,6 +301,9 @@
                 <DataTrigger Binding="{Binding HasThumbnail}" Value="True">
                     <Setter TargetName="ListFileIcon" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="ListThumbnailFrame" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasThumbnailBadge}" Value="True">
+                    <Setter TargetName="ListThumbnailBadge" Property="Visibility" Value="Visible"/>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>

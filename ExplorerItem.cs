@@ -14,6 +14,17 @@ public enum ExplorerItemKind
     RezFile
 }
 
+public enum ImageStorageKind
+{
+    None,
+    DtxUncompressed,
+    DtxLzmaCompressed,
+    TgaUncompressed,
+    TgaLzmaCompressed,
+    TgaInsertedFooterHeader,
+    TgaRawPixels
+}
+
 public sealed class ExplorerItem : INotifyPropertyChanged
 {
     private static readonly ImageSource? FolderIconImage = LoadFolderIcon();
@@ -29,12 +40,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         "gif",
         "tif",
         "tiff",
+        "tga",
         "dtx"
     };
 
     private readonly object _thumbnailSync = new();
     private Task? _thumbnailLoadTask;
     private ImageSource? _thumbnailSource;
+    private ImageStorageKind _imageStorageKind;
 
     public required string Name { get; init; }
     public required ExplorerItemKind Kind { get; init; }
@@ -58,6 +71,26 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     public bool HasThumbnail => _thumbnailSource is not null;
 
     public ImageSource? ThumbnailSource => _thumbnailSource;
+
+    public ImageStorageKind ImageStorageKind => _imageStorageKind;
+
+    public string? ThumbnailBadgeText => _imageStorageKind switch
+    {
+        ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZMA",
+        ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
+        ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "RAW",
+        _ => null
+    };
+
+    public string? CompactThumbnailBadgeText => _imageStorageKind switch
+    {
+        ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed => "LZ",
+        ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
+        ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "R",
+        _ => null
+    };
+
+    public bool HasThumbnailBadge => ThumbnailBadgeText is not null;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -123,6 +156,23 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             if (ArchiveFile is not null)
             {
+                if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.TgaLzmaCompressed)
+                {
+                    lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: LZMA compressed");
+                }
+                else if (_imageStorageKind is ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed)
+                {
+                    lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: uncompressed");
+                }
+                else if (_imageStorageKind is ImageStorageKind.TgaInsertedFooterHeader)
+                {
+                    lines.Add("TGA storage: repaired inserted footer/header");
+                }
+                else if (_imageStorageKind is ImageStorageKind.TgaRawPixels)
+                {
+                    lines.Add("TGA storage: repaired raw pixel data");
+                }
+
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
                 lines.Add($"MD5: {ArchiveFile.Md5}");
             }
@@ -204,11 +254,17 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         }
     }
 
-    public Task<ImageSource?> LoadPreviewImageAsync()
+    public async Task<ImageSource?> LoadPreviewImageAsync()
+    {
+        IReadOnlyList<ImagePreviewFrame> frames = await LoadPreviewFramesAsync();
+        return frames.Count > 0 ? frames[0].Source : null;
+    }
+
+    public Task<IReadOnlyList<ImagePreviewFrame>> LoadPreviewFramesAsync()
     {
         return IsImagePreviewCandidate
-            ? Task.Run(LoadRezPreviewImage)
-            : Task.FromResult<ImageSource?>(null);
+            ? Task.Run(LoadRezPreviewFrames)
+            : Task.FromResult((IReadOnlyList<ImagePreviewFrame>)Array.Empty<ImagePreviewFrame>());
     }
 
     private async Task LoadThumbnailCoreAsync()
@@ -254,7 +310,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
             {
+                SetImageStorageKind(GetDtxStorageKind(data));
                 return DtxThumbnailDecoder.TryDecode(data);
+            }
+
+            if (string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageStorageKind(GetTgaStorageKind(data));
+                return TgaThumbnailDecoder.TryDecode(data);
             }
 
             return LoadBitmapImage(data, decodeThumbnail: true);
@@ -267,26 +330,46 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     private ImageSource? LoadRezPreviewImage()
     {
+        IReadOnlyList<ImagePreviewFrame> frames = LoadRezPreviewFrames();
+        return frames.Count > 0 ? frames[0].Source : null;
+    }
+
+    private IReadOnlyList<ImagePreviewFrame> LoadRezPreviewFrames()
+    {
         try
         {
             string? extension = ArchiveFile?.Extension;
             byte[]? data = ReadArchiveFileBytes(MaxPreviewBytes);
             if (data is null || extension is null)
             {
-                return null;
+                return Array.Empty<ImagePreviewFrame>();
             }
 
             if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
             {
-                return DtxThumbnailDecoder.TryDecodeOriginal(data);
+                SetImageStorageKind(GetDtxStorageKind(data));
+                return CreatePreviewFrames(DtxThumbnailDecoder.TryDecodeOriginal(data));
             }
 
-            return LoadBitmapImage(data, decodeThumbnail: false);
+            if (string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
+            {
+                SetImageStorageKind(GetTgaStorageKind(data));
+                return TgaThumbnailDecoder.TryDecodePreviewFrames(data);
+            }
+
+            return CreatePreviewFrames(LoadBitmapImage(data, decodeThumbnail: false));
         }
         catch
         {
-            return null;
+            return Array.Empty<ImagePreviewFrame>();
         }
+    }
+
+    private static IReadOnlyList<ImagePreviewFrame> CreatePreviewFrames(ImageSource? imageSource)
+    {
+        return imageSource is null
+            ? Array.Empty<ImagePreviewFrame>()
+            : new[] { new ImagePreviewFrame("Original", imageSource) };
     }
 
     private byte[]? ReadArchiveFileBytes(int maxBytes)
@@ -323,6 +406,52 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         image.EndInit();
         image.Freeze();
         return image;
+    }
+
+    private static ImageStorageKind GetDtxStorageKind(byte[] data)
+    {
+        return DtxThumbnailDecoder.IsLzmaCompressed(data)
+            ? ImageStorageKind.DtxLzmaCompressed
+            : ImageStorageKind.DtxUncompressed;
+    }
+
+    private static ImageStorageKind GetTgaStorageKind(byte[] data)
+    {
+        if (TgaThumbnailDecoder.IsLzmaCompressed(data))
+        {
+            return ImageStorageKind.TgaLzmaCompressed;
+        }
+
+        return TgaThumbnailDecoder.HasInsertedFooterHeader(data)
+            ? ImageStorageKind.TgaInsertedFooterHeader
+            : TgaThumbnailDecoder.HasRawPixelData(data)
+                ? ImageStorageKind.TgaRawPixels
+                : ImageStorageKind.TgaUncompressed;
+    }
+
+    private static string GetImageFormatLabel(ImageStorageKind storageKind)
+    {
+        return storageKind switch
+        {
+            ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.DtxUncompressed => "DTX",
+            ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
+            _ => "Image"
+        };
+    }
+
+    private void SetImageStorageKind(ImageStorageKind storageKind)
+    {
+        if (_imageStorageKind == storageKind)
+        {
+            return;
+        }
+
+        _imageStorageKind = storageKind;
+        OnPropertyChanged(nameof(ImageStorageKind));
+        OnPropertyChanged(nameof(ThumbnailBadgeText));
+        OnPropertyChanged(nameof(CompactThumbnailBadgeText));
+        OnPropertyChanged(nameof(HasThumbnailBadge));
+        OnPropertyChanged(nameof(InfoToolTip));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
