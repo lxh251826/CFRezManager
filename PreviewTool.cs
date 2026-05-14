@@ -65,6 +65,7 @@ internal static class PreviewTool
                ImageExtensions.Contains(extension) ||
                EncTextDecoder.IsCandidate(fileName, extension) ||
                CrossFireDatDecoder.IsCandidate(extension) ||
+               LithTechSpriteDecoder.IsCandidate(extension) ||
                TextPreviewDecoder.IsPlainTextExtension(extension);
     }
 
@@ -107,6 +108,13 @@ internal static class PreviewTool
             {
                 window = new ModelPreviewWindow(fileName, worldDocument, FormatModelInfo(worldDocument));
                 window.ShowInTaskbar = true;
+                return true;
+            }
+
+            if (LithTechSpriteDecoder.IsCandidate(extension) &&
+                TryCreateSpriteWindow(fileName, filePath, data, out window))
+            {
+                window!.ShowInTaskbar = true;
                 return true;
             }
 
@@ -187,6 +195,68 @@ internal static class PreviewTool
         return true;
     }
 
+    private static bool TryCreateSpriteWindow(string fileName, string filePath, byte[] data, out Window? window)
+    {
+        window = null;
+        if (!LithTechSpriteDecoder.TryDecode(data, fileName, out LithTechSpriteDocument? spriteDocument, out _) ||
+            spriteDocument is null)
+        {
+            return false;
+        }
+
+        const int maxPreviewFrames = 512;
+        var frames = new List<ImagePreviewFrame>(Math.Min(spriteDocument.FramePaths.Count, maxPreviewFrames));
+        int missingFrames = 0;
+        int skippedFrames = 0;
+        for (int i = 0; i < spriteDocument.FramePaths.Count && frames.Count < maxPreviewFrames; i++)
+        {
+            if (!TryFindLocalSpriteFrame(filePath, spriteDocument.FramePaths[i], out string? framePath) ||
+                framePath is null)
+            {
+                missingFrames++;
+                continue;
+            }
+
+            ImageSource? image = TryReadLocalDtxFrame(framePath);
+            if (image is null)
+            {
+                skippedFrames++;
+                continue;
+            }
+
+            frames.Add(new ImagePreviewFrame($"Frame {i:0000}", image));
+        }
+
+        if (frames.Count == 0)
+        {
+            return false;
+        }
+
+        string info = $"{spriteDocument.StorageDescription}, {spriteDocument.FrameCount:N0} frames @ {spriteDocument.FrameRate:N0} fps";
+        if (frames.Count != spriteDocument.FrameCount)
+        {
+            info += $", loaded {frames.Count:N0}";
+        }
+
+        if (missingFrames > 0)
+        {
+            info += $", missing {missingFrames:N0}";
+        }
+
+        if (skippedFrames > 0)
+        {
+            info += $", skipped {skippedFrames:N0}";
+        }
+
+        if (spriteDocument.FrameCount > maxPreviewFrames)
+        {
+            info += $", capped at {maxPreviewFrames:N0}";
+        }
+
+        window = new ImagePreviewWindow(fileName, frames, info, spriteDocument.FrameRate);
+        return true;
+    }
+
     private static bool TryCreateTextWindow(
         string fileName,
         string extension,
@@ -236,6 +306,19 @@ internal static class PreviewTool
             return true;
         }
 
+        if (LithTechSpriteDecoder.IsCandidate(extension))
+        {
+            if (!LithTechSpriteDecoder.TryDecode(data, fileName, out LithTechSpriteDocument? sprDocument, out errorMessage) ||
+                sprDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{sprDocument.StorageDescription}, {sprDocument.FrameCount:N0} frames @ {sprDocument.FrameRate:N0} fps, {sprDocument.SourceByteCount:N0} bytes -> {sprDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, sprDocument.Text, info);
+            return true;
+        }
+
         if (!TextPreviewDecoder.IsPlainTextExtension(extension) ||
             !TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
         {
@@ -244,6 +327,52 @@ internal static class PreviewTool
 
         window = new TextPreviewWindow(fileName, text, $"{encoding}, {data.Length:N0} bytes");
         return true;
+    }
+
+    private static bool TryFindLocalSpriteFrame(string spriteFilePath, string spriteFramePath, out string? framePath)
+    {
+        framePath = null;
+        string? startDirectory = Path.GetDirectoryName(spriteFilePath);
+        if (string.IsNullOrWhiteSpace(startDirectory))
+        {
+            return false;
+        }
+
+        string relativePath = spriteFramePath
+            .Replace('/', Path.DirectorySeparatorChar)
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        for (string? directory = startDirectory; !string.IsNullOrWhiteSpace(directory); directory = Directory.GetParent(directory)?.FullName)
+        {
+            string candidate = Path.Combine(directory, relativePath);
+            if (File.Exists(candidate))
+            {
+                framePath = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static ImageSource? TryReadLocalDtxFrame(string framePath)
+    {
+        try
+        {
+            const long maxFrameBytes = 64 * 1024 * 1024;
+            var info = new FileInfo(framePath);
+            if (!info.Exists || info.Length < 0 || info.Length > maxFrameBytes)
+            {
+                return null;
+            }
+
+            return DtxThumbnailDecoder.TryDecodeOriginal(File.ReadAllBytes(framePath));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static ImageSource LoadBitmapImage(byte[] data)

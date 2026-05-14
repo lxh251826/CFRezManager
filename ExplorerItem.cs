@@ -28,7 +28,9 @@ public enum ImageStorageKind
     LithTechWorldDat,
     LithTechWorldDatLzma,
     CrossFireDat,
-    CrossFireDatLzma
+    CrossFireDatLzma,
+    LithTechSprite,
+    LithTechSpriteLzma
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -98,6 +100,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.LithTechWorldDatLzma => "LZMA",
         ImageStorageKind.CrossFireDat => "DAT",
         ImageStorageKind.CrossFireDatLzma => "LZMA",
+        ImageStorageKind.LithTechSprite => "SPR",
+        ImageStorageKind.LithTechSpriteLzma => "LZMA",
         _ => null
     };
 
@@ -111,6 +115,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.LithTechWorldDatLzma => "LZ",
         ImageStorageKind.CrossFireDat => "DT",
         ImageStorageKind.CrossFireDatLzma => "LZ",
+        ImageStorageKind.LithTechSprite => "SP",
+        ImageStorageKind.LithTechSpriteLzma => "LZ",
         _ => null
     };
 
@@ -219,6 +225,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.CrossFireDatLzma)
                 {
                     lines.Add("DAT preview: LZMA-compressed CrossFire object data");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LithTechSprite)
+                {
+                    lines.Add("SPR preview: LithTech sprite animation");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LithTechSpriteLzma)
+                {
+                    lines.Add("SPR preview: LZMA-compressed LithTech sprite animation");
                 }
 
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
@@ -372,7 +386,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                (ThumbnailExtensions.Contains(ArchiveFile.Extension) ||
                 LithTechModelDecoder.IsCandidate(ArchiveFile.Extension) ||
                 LithTechWorldDatDecoder.IsCandidate(ArchiveFile.Extension) ||
-                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension));
+                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension) ||
+                LithTechSpriteDecoder.IsCandidate(ArchiveFile.Extension));
     }
 
     private bool CanLoadImagePreview()
@@ -391,6 +406,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                (EncTextDecoder.IsCandidate(Name, ArchiveFile.Extension) ||
                 CrossFireLtcDecoder.IsCandidate(ArchiveFile.Extension) ||
                 CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension) ||
+                LithTechSpriteDecoder.IsCandidate(ArchiveFile.Extension) ||
                 TextPreviewDecoder.IsPlainTextExtension(ArchiveFile.Extension));
     }
 
@@ -437,6 +453,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             if (CrossFireDatDecoder.IsCandidate(extension))
             {
                 return LoadCrossFireDatThumbnail(data);
+            }
+
+            if (LithTechSpriteDecoder.IsCandidate(extension))
+            {
+                return LoadLithTechSpriteThumbnail(data);
             }
 
             if (CrossFireLtcDecoder.IsCandidate(extension))
@@ -513,6 +534,18 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
         SetImageStorageKind(GetCrossFireDatStorageKind(data));
         return TextThumbnailRenderer.TryRender(Name, document.Text, "DAT");
+    }
+
+    private ImageSource? LoadLithTechSpriteThumbnail(byte[] data)
+    {
+        if (!LithTechSpriteDecoder.TryDecode(data, Name, out LithTechSpriteDocument? document, out _) ||
+            document is null)
+        {
+            return null;
+        }
+
+        SetImageStorageKind(GetLithTechSpriteStorageKind(data));
+        return TextThumbnailRenderer.TryRender(Name, document.Text, "SPR");
     }
 
     private static LithTechModelDocument SimplifyForThumbnail(LithTechModelDocument document, int maxTriangles)
@@ -732,6 +765,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     datDocument.DecodedByteCount);
             }
 
+            if (LithTechSpriteDecoder.IsCandidate(extension))
+            {
+                if (!LithTechSpriteDecoder.TryDecode(data, Name, out LithTechSpriteDocument? sprDocument, out _) ||
+                    sprDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    sprDocument.Text,
+                    $"{sprDocument.StorageDescription}, {sprDocument.FrameCount:N0} frames @ {sprDocument.FrameRate:N0} fps",
+                    TextPreviewStorageKind.LithTechSprite,
+                    sprDocument.SourceByteCount,
+                    sprDocument.DecodedByteCount);
+            }
+
             if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
             {
                 return null;
@@ -926,6 +975,13 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             : ImageStorageKind.CrossFireDat;
     }
 
+    private static ImageStorageKind GetLithTechSpriteStorageKind(byte[] data)
+    {
+        return LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.LithTechSpriteLzma
+            : ImageStorageKind.LithTechSprite;
+    }
+
     private static string GetImageFormatLabel(ImageStorageKind storageKind)
     {
         return storageKind switch
@@ -933,6 +989,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.DtxUncompressed => "DTX",
             ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
             ImageStorageKind.LithTechWorldDat or ImageStorageKind.LithTechWorldDatLzma or ImageStorageKind.CrossFireDat or ImageStorageKind.CrossFireDatLzma => "DAT",
+            ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",
             _ => "Image"
         };
     }

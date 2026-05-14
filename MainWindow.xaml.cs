@@ -329,7 +329,11 @@ public partial class MainWindow : Window
         }
 
         ExplorerItem item = selectedItems[0];
-        if (item.IsModelPreviewCandidate)
+        if (IsSpritePreviewCandidate(item))
+        {
+            await ShowSpritePreviewAsync(item);
+        }
+        else if (item.IsModelPreviewCandidate)
         {
             await ShowModelPreviewAsync(item);
         }
@@ -414,6 +418,10 @@ public partial class MainWindow : Window
         {
             await ShowFolderAsync(item);
         }
+        else if (IsSpritePreviewCandidate(item))
+        {
+            await ShowSpritePreviewAsync(item);
+        }
         else if (item.IsModelPreviewCandidate)
         {
             await ShowModelPreviewAsync(item);
@@ -441,6 +449,56 @@ public partial class MainWindow : Window
     private async Task ShowImagePreviewAsync(ExplorerItem item)
     {
         await ShowPreviewToolAsync(item);
+    }
+
+    private async Task ShowSpritePreviewAsync(ExplorerItem item)
+    {
+        if (item.Archive is null || item.ArchiveFile is null)
+        {
+            await ShowTextPreviewAsync(item);
+            return;
+        }
+
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingPreview", item.Name);
+
+        try
+        {
+            LithTechSpritePreviewDocument? preview = await Task.Run(() =>
+            {
+                return LithTechSpritePreviewLoader.TryLoadFromArchive(
+                    item.Archive,
+                    item.ArchiveFile,
+                    item.Name,
+                    out LithTechSpritePreviewDocument? document,
+                    out _)
+                    ? document
+                    : null;
+            });
+
+            if (preview is null)
+            {
+                SetBusy(false, keepSearchEnabled: true);
+                await ShowTextPreviewAsync(item);
+                return;
+            }
+
+            var window = new ImagePreviewWindow(item.Name, preview.Frames, preview.Info, preview.FrameRate)
+            {
+                Owner = this,
+                ShowInTaskbar = true
+            };
+            window.Show();
+            SetStatus("PreviewOpened", item.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
     }
 
     private async Task ShowPreviewToolAsync(ExplorerItem item)
@@ -477,6 +535,14 @@ public partial class MainWindow : Window
         string previewPath = Path.Combine(previewDirectory, fileName);
         RezArchiveReader.ExtractFile(item.Archive, item.ArchiveFile, previewPath);
         return previewPath;
+    }
+
+    private static bool IsSpritePreviewCandidate(ExplorerItem item)
+    {
+        return item.Kind == ExplorerItemKind.RezFile &&
+               item.Archive is not null &&
+               item.ArchiveFile is not null &&
+               LithTechSpriteDecoder.IsCandidate(item.ArchiveFile.Extension);
     }
 
     private static void StartPreviewTool(string filePath)
@@ -618,7 +684,8 @@ public partial class MainWindow : Window
     {
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
         ExplorerItem? previewItem = selectedItems.Count == 1 &&
-                                    (selectedItems[0].IsModelPreviewCandidate ||
+                                    (IsSpritePreviewCandidate(selectedItems[0]) ||
+                                     selectedItems[0].IsModelPreviewCandidate ||
                                      selectedItems[0].IsTextPreviewCandidate ||
                                      selectedItems[0].IsImagePreviewCandidate)
             ? selectedItems[0]
@@ -626,12 +693,14 @@ public partial class MainWindow : Window
         OpenPreviewMenuItem.Visibility = previewItem is null ? Visibility.Collapsed : Visibility.Visible;
         PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility;
         OpenPreviewMenuItem.IsEnabled = !_isBusy && previewItem is not null;
-        OpenPreviewMenuItem.Header = previewItem switch
-        {
-            { IsModelPreviewCandidate: true } => T("OpenModelPreview"),
-            { IsTextPreviewCandidate: true } => T("OpenTextPreview"),
-            _ => T("OpenImagePreview")
-        };
+        OpenPreviewMenuItem.Header = previewItem is not null && IsSpritePreviewCandidate(previewItem)
+            ? T("OpenImagePreview")
+            : previewItem switch
+            {
+                { IsModelPreviewCandidate: true } => T("OpenModelPreview"),
+                { IsTextPreviewCandidate: true } => T("OpenTextPreview"),
+                _ => T("OpenImagePreview")
+            };
 
         ExtractSelectedMenuItem.IsEnabled = !_isBusy && selectedItems.Count > 0;
         ExtractSelectedMenuItem.Header = selectedItems.Count == 1

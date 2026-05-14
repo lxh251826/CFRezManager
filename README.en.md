@@ -1,8 +1,9 @@
 # CF Rez Manager
-![alt text](image-1.png)
-![alt text](image.png)
 
-CF Rez Manager is a Windows WPF tool for browsing, extracting, and packing LithTech / CF `.rez` archives.
+![Main window](image-1.png)
+![Preview window](image.png)
+
+CF Rez Manager is a Windows WPF tool for browsing, searching, extracting, and packing LithTech / CrossFire `.rez` archives.
 
 Chinese documentation is available in [README.md](README.md).
 
@@ -23,6 +24,16 @@ Run the app from Visual Studio, or start the built executable:
 bin\Debug\net8.0-windows\CFRezManager.exe
 ```
 
+## Release
+
+The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
+
+```powershell
+git tag v0.8.0
+git push origin main
+git push origin v0.8.0
+```
+
 ## Browse REZ Archives
 
 1. Start the program.
@@ -30,27 +41,29 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 3. Double-click normal folders, REZ archives, or internal REZ folders to enter them.
 4. Use the breadcrumb bar to jump back to parent locations.
 
-Use the language selector in the top toolbar to switch between `中文` and `English`. Buttons, context menus, status text, and common dialog prompts update with the selected language.
+Use the language selector in the top toolbar to switch between `中文` and `English`. The app remembers the selected language, view size, scan folder, pack folder, extract folder, and save location.
 
-The app remembers the selected language, bottom-right size slider, and the folders used for scanning, packing, extracting, and saving REZ files. On the next launch or the next matching dialog, it restores the last used settings and location.
+The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly. Separate multiple keywords with spaces to require all terms to match.
 
-The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly, similar to Everything. Separate multiple keywords with spaces to require all terms to match.
+Use the bottom-right `Size` slider to switch views: smaller values use a list view with path and size details, while larger values return to the tiled icon view. Hover files, folders, or REZ items to see metadata such as type, path, size, source, MD5, and data offset.
 
-Use the bottom-right `Size` slider to switch views: smaller values use a list view with path and size details, while larger values return to the tiled icon view. Hover files, folders, or REZ items to see available metadata such as type, path, size, source, MD5, and data offset.
+## Preview Support
 
-PNG, JPG, BMP, GIF, TIFF, TGA, and DTX image files inside REZ archives lazy-load thumbnails when they become visible. Files that cannot be decoded still use the normal file icon.
-DTX and TGA decoding covers plain textures, the LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
-Double-click a decodable image file to open an original-size preview window. The image is not stretched; if it is larger than the screen, use the preview window scroll bars.
+- PNG, JPG, BMP, GIF, TIFF, TGA, and DTX images lazy-load thumbnails.
+- DTX and TGA decoding covers plain textures, LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
+- DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
+- SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
+- LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
+- DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open the model preview window. CrossFire object DAT files decode into text previews for `Zoneman`, `EnvSound`, `MovePath`, and `CameraAnimation`.
+- LZMA-compressed resources show an `LZMA` badge in the thumbnail corner.
 
-LTC files support thumbnails and double-click previews. The app first uses built-in decoders for plain LTC, LZMA-compressed LTC, and the CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR; decoded LTA text opens directly in the text preview window. If the content is a LithTech model, the app tries to render a model thumbnail and can open the standalone model preview window. LTC files that still cannot be recognized can fall back to `CFREZ_LTC_TO_LTA` or an external converter placed under the `tools` folder.
-
-DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open in the standalone model preview window; both plain DAT and LZMA-compressed DAT files are detected automatically, and LZMA-compressed resources show a `LZMA` badge in the thumbnail corner. CrossFire object DAT files decode into text previews, currently covering `Zoneman` areas, `EnvSound` ambience, `MovePath` paths, and `CameraAnimation` cutscene camera data.
-
-Mouse shortcuts:
+## Mouse Shortcuts
 
 - Mouse back button: go to the previous viewed location.
 - Mouse forward button: go to the next viewed location.
-- Hold the left mouse button and drag: box-select visible files or folders. Hold `Ctrl` to toggle selection, or `Shift` to add to the current selection.
+- Hold the left mouse button and drag: box-select visible files or folders.
+- Hold `Ctrl` while dragging: toggle selection.
+- Hold `Shift` while dragging: add to the current selection.
 
 ## Extract Files
 
@@ -86,6 +99,13 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
 
+## v0.8.0 Changes
+
+- Added LithTech SPR parsing for both LZMA-compressed and uncompressed SPR files.
+- Added SPR animation preview with frame-rate playback, pause/resume, and manual frame selection.
+- Added fallback SPR text preview when referenced DTX frames cannot be found.
+- Rewrote the Chinese documentation and refreshed the English documentation and GitHub Release notes.
+
 ## Project Files
 
 - `MainWindow.xaml` / `MainWindow.xaml.cs`: WPF interface and user actions.
@@ -93,7 +113,11 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `RezArchiveWriter.cs`: Packs a folder into a new REZ archive.
 - `RezCrypto.cs`: Directory table decode and encode logic.
 - `ExplorerItem.cs`: In-app folder/archive item model.
+- `PreviewTool.cs`: Standalone preview-tool entry point.
+- `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
+- `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
+- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`: LithTech model parsing and rendering.
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.

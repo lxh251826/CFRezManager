@@ -49,14 +49,17 @@ jobs:
           body: |
             CF Rez Manager ${{ github.ref_name }}
 
-            - 浏览、搜索、导出和重新打包 REZ 资源包
-            - 支持中文 / English 语言切换，并记住语言、目录和显示大小
-            - 支持鼠标前进后退、右键导出指定项、左键拖动框选
-            - 支持列表 / 平铺大小切换、文件信息提示和快速搜索
-            - 支持 PNG、JPG、BMP、GIF、TIFF、TGA、DTX 缩略图和预览
-            - 支持 ENC / Base64 与常见文本文件预览
-            - 支持 LTC 缩略图、文本查看和 LithTech 模型预览，兼容 CrossFire 常见 LTC 外层 XOR
-            - 支持 LithTech / LTB 模型缩略图和独立模型预览窗口
-            - 支持 LithTech world DAT 地图缩略图和独立模型预览，兼容大型 LZMA 压缩地图
-            - 支持 CrossFire DAT 对象文本预览，包括 Zoneman、EnvSound、MovePath 和 CameraAnimation
-            - 改进 DTX / TGA 解码，兼容 CF 常见 LZMA 压缩纹理和部分异常 TGA 数据
+            ## Highlights
+
+            - Browse, search, extract, and repack LithTech / CrossFire REZ archives.
+            - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, LTC, DAT, model, and world resources.
+            - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC resources.
+            - Parse LithTech SPR files and preview sprite animations by loading referenced DTX frames.
+            - Switch between Chinese and English UI text, with remembered language, folders, and view size.
+
+            ## v0.8.0
+
+            - Added SPR animation preview with frame-rate playback, pause/resume, and manual frame selection.
+            - Added LZMA-compressed and uncompressed LithTech SPR parsing.
+            - Added fallback SPR frame-table text preview when referenced DTX frames are unavailable.
+            - Refreshed Chinese and English documentation.
