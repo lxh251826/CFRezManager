@@ -655,7 +655,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         }
 
         SetImageStorageKind(GetLithTechSpriteStorageKind(data));
-        return TextThumbnailRenderer.TryRender(Name, document.Text, "SPR");
+        ImageSource? frameThumbnail = Kind switch
+        {
+            ExplorerItemKind.RezFile when Archive is not null => LithTechSpritePreviewLoader.TryLoadThumbnailFromArchive(Archive, document),
+            ExplorerItemKind.LocalFile when !string.IsNullOrWhiteSpace(SourcePath) => LithTechSpritePreviewLoader.TryLoadThumbnailFromLocalFile(SourcePath, document),
+            _ => null
+        };
+
+        return frameThumbnail ?? TextThumbnailRenderer.TryRender(Name, document.Text, "SPR");
     }
 
     private ImageSource? LoadAudioThumbnail(byte[] data)

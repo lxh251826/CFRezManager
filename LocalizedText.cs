@@ -16,6 +16,11 @@ internal static class LocalizedText
             ["PreviewItemNotFile"] = ("此项无法作为文件预览。", "This item cannot be previewed as a file."),
             ["PreviewFileTooLarge"] = ("文件过大，无法预览: {0}", "File is too large to preview: {0}"),
             ["PreviewToolExecutableMissing"] = ("无法定位预览工具可执行文件。", "Cannot locate the preview tool executable."),
+            ["PreviewPrevious"] = ("\u4e0a\u4e00\u5f20", "Prev"),
+            ["PreviewNext"] = ("\u4e0b\u4e00\u5f20", "Next"),
+            ["PreviewPause"] = ("\u6682\u505c", "Pause"),
+            ["PreviewPlay"] = ("\u64ad\u653e", "Play"),
+            ["PreviewFrame"] = ("\u5e27", "Frame"),
 
             ["ModelOuterCompressionFailed"] = ("无法解开模型外层压缩。", "Could not decompress the model wrapper."),
             ["ModelLtcNotRecognized"] = ("LTC 不是可直接识别的 LTA 文本/压缩文本，也未能用内置 LTC 解码器还原为 LTA。可配置 CFREZ_LTC_TO_LTA 作为外部兜底。", "The LTC is not directly recognizable LTA text/compressed text, and the built-in LTC decoder could not restore it to LTA. Configure CFREZ_LTC_TO_LTA as an external fallback."),
@@ -56,9 +61,18 @@ internal static class LocalizedText
             ["LtcDecodedTooLarge"] = ("LTC 解码结果过大。", "The decoded LTC result is too large.")
         };
 
+    public static event EventHandler? LanguageChanged;
+
     public static void SetLanguage(string? languageCode)
     {
-        _useEnglish = string.Equals(languageCode, "en", StringComparison.OrdinalIgnoreCase);
+        bool useEnglish = string.Equals(languageCode, "en", StringComparison.OrdinalIgnoreCase);
+        if (_useEnglish == useEnglish)
+        {
+            return;
+        }
+
+        _useEnglish = useEnglish;
+        LanguageChanged?.Invoke(null, EventArgs.Empty);
     }
 
     public static void UseSavedLanguage()

@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v0.11.0
+git tag v1.0.0
 git push origin main
-git push origin v0.11.0
+git push origin v1.0.0
 ```
 
 ## Browse REZ Archives
@@ -118,6 +118,15 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed file and directory names currently must be ASCII.
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
+
+## v1.0.0 Official Release
+
+- Shipped the first official `v1.0.0` release, stabilizing the current REZ browsing, search, extraction, repacking, and multi-format preview feature set.
+- SPR sprite previews can load referenced DTX frames from both REZ archives and local extracted resource folders; thumbnails now prefer real sprite frames, and double-click previews can autoplay animations.
+- Image/SPR preview windows now localize previous/next navigation, play/pause, and frame selection controls, and refresh their text when the app language changes.
+- Local loose SPR files can be parsed and matched with frame files in neighboring resource trees, making extracted assets easier to inspect directly.
+- Audio preview uses a borderless window style and refined spectrum peak falloff for a more player-like visual feel.
+- Added the application icon, refreshed Chinese and English documentation, and made GitHub Release notes bilingual.
 
 ## v0.11.0 Changes
 

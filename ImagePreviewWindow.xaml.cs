@@ -14,11 +14,12 @@ public partial class ImagePreviewWindow : Window
     private string _imageName = string.Empty;
     private string? _imageInfo;
     private IReadOnlyList<ImagePreviewFrame> _frames = Array.Empty<ImagePreviewFrame>();
-    private readonly DispatcherTimer? _animationTimer;
+    private readonly DispatcherTimer _animationTimer = new();
     private readonly Func<int, Task<ImagePreviewDocument?>>? _loadDocumentAsync;
     private int _documentIndex;
     private int _documentCount = 1;
     private int _currentFrameIndex;
+    private bool _hasAnimation;
     private bool _isDocumentLoading;
     private bool _isPlaying;
     private bool _isUpdatingFrameSelector;
@@ -58,22 +59,12 @@ public partial class ImagePreviewWindow : Window
         _loadDocumentAsync = loadDocumentAsync;
         _documentCount = Math.Max(1, documentCount);
         _documentIndex = Math.Clamp(documentIndex, 0, _documentCount - 1);
-
-        if (document.Frames.Count > 1 && document.AnimationFrameRate is > 0)
-        {
-            PlayPauseButton.Visibility = Visibility.Visible;
-            PreviewInfoBar.Visibility = Visibility.Visible;
-            _animationTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(document.AnimationFrameRate.Value, 1.0, 60.0))
-            };
-            _animationTimer.Tick += AnimationTimer_Tick;
-            _isPlaying = true;
-        }
+        _animationTimer.Tick += AnimationTimer_Tick;
+        LocalizedText.LanguageChanged += LocalizedText_LanguageChanged;
+        ApplyLanguage();
 
         SetDocument(document);
         SetInitialWindowSize();
-        _animationTimer?.Start();
     }
 
     private void FrameSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -96,13 +87,13 @@ public partial class ImagePreviewWindow : Window
 
     private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_animationTimer is null)
+        if (!_hasAnimation)
         {
             return;
         }
 
         _isPlaying = !_isPlaying;
-        PlayPauseButton.Content = _isPlaying ? "Pause" : "Play";
+        UpdatePlayPauseButtonText();
         if (_isPlaying)
         {
             _animationTimer.Start();
@@ -115,6 +106,11 @@ public partial class ImagePreviewWindow : Window
 
     private void AnimationTimer_Tick(object? sender, EventArgs e)
     {
+        if (_frames.Count == 0)
+        {
+            return;
+        }
+
         int nextIndex = (_currentFrameIndex + 1) % _frames.Count;
         if (FrameSelector.Visibility == Visibility.Visible)
         {
@@ -128,8 +124,37 @@ public partial class ImagePreviewWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _animationTimer?.Stop();
+        _animationTimer.Stop();
+        LocalizedText.LanguageChanged -= LocalizedText_LanguageChanged;
         base.OnClosed(e);
+    }
+
+    private void LocalizedText_LanguageChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            ApplyLanguage();
+            return;
+        }
+
+        Dispatcher.Invoke(ApplyLanguage);
+    }
+
+    private void ApplyLanguage()
+    {
+        PreviousImageButton.Content = LocalizedText.T("PreviewPrevious");
+        NextImageButton.Content = LocalizedText.T("PreviewNext");
+        UpdatePlayPauseButtonText();
+        FrameSelector.Items.Refresh();
+        if (_frames.Count > 0)
+        {
+            SetFrame(_currentFrameIndex);
+        }
+    }
+
+    private void UpdatePlayPauseButtonText()
+    {
+        PlayPauseButton.Content = LocalizedText.T(_isPlaying ? "PreviewPause" : "PreviewPlay");
     }
 
     protected override async void OnKeyDown(System.Windows.Input.KeyEventArgs e)
@@ -193,6 +218,7 @@ public partial class ImagePreviewWindow : Window
         _imageInfo = document.ImageInfo;
         _frames = document.Frames;
         _currentFrameIndex = 0;
+        ConfigureAnimation(document);
 
         _isUpdatingFrameSelector = true;
         FrameSelector.ItemsSource = null;
@@ -206,6 +232,25 @@ public partial class ImagePreviewWindow : Window
         _isUpdatingFrameSelector = false;
         SetFrame(0);
         UpdateNavigationState();
+    }
+
+    private void ConfigureAnimation(ImagePreviewDocument document)
+    {
+        _animationTimer.Stop();
+        _hasAnimation = document.Frames.Count > 1 && document.AnimationFrameRate is > 0;
+        PlayPauseButton.Visibility = _hasAnimation ? Visibility.Visible : Visibility.Collapsed;
+        if (!_hasAnimation)
+        {
+            _isPlaying = false;
+            UpdatePlayPauseButtonText();
+            return;
+        }
+
+        double frameRate = Math.Clamp(document.AnimationFrameRate.GetValueOrDefault(), 1.0, 60.0);
+        _animationTimer.Interval = TimeSpan.FromSeconds(1.0 / frameRate);
+        _isPlaying = true;
+        UpdatePlayPauseButtonText();
+        _animationTimer.Start();
     }
 
     private void SetFrame(int index)
@@ -230,15 +275,16 @@ public partial class ImagePreviewWindow : Window
             PreviewImage.ClearValue(HeightProperty);
         }
 
+        string frameName = frame.LocalizedName;
         string? frameInfo = _frames.Count > 1
-            ? dimensions is null ? frame.Name : $"{frame.Name} - {dimensions}"
+            ? dimensions is null ? frameName : $"{frameName} - {dimensions}"
             : null;
         string? documentInfo = HasDocumentNavigation ? $"{_documentIndex + 1:N0} / {_documentCount:N0}" : null;
         string? infoText = CombineInfo(CombineInfo(documentInfo, _imageInfo), frameInfo);
         PreviewInfoText.Text = string.IsNullOrWhiteSpace(infoText) ? string.Empty : infoText;
         UpdateInfoBarVisibility();
 
-        string titleFrame = dimensions is null ? frame.Name : $"{frame.Name} ({dimensions})";
+        string titleFrame = dimensions is null ? frameName : $"{frameName} ({dimensions})";
         Title = _frames.Count > 1
             ? $"{_imageName} - {titleFrame}"
             : string.IsNullOrWhiteSpace(dimensions) ? _imageName : $"{_imageName} ({dimensions})";
@@ -270,7 +316,7 @@ public partial class ImagePreviewWindow : Window
         PreviewInfoBar.Visibility = PreviewInfoText.Text.Length > 0 ||
                                     _frames.Count > 1 ||
                                     HasDocumentNavigation ||
-                                    _animationTimer is not null
+                                    _hasAnimation
             ? Visibility.Visible
             : Visibility.Collapsed;
     }

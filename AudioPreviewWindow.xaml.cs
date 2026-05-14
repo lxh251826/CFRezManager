@@ -13,11 +13,15 @@ public partial class AudioPreviewWindow : Window
     private const string PlayIconData = "M 3 1 L 18 10 L 3 19 Z";
     private const string PauseIconData = "M 4 1 L 8 1 L 8 19 L 4 19 Z M 12 1 L 16 1 L 16 19 L 12 19 Z";
     private const long SpectrumPeakHoldMilliseconds = 420;
-    private const double SpectrumPeakFallRowsPerSecond = 5.8;
+    private const double SpectrumPeakInitialFallRowsPerSecond = 1.6;
+    private const double SpectrumPeakGravityRowsPerSecondSquared = 32.0;
+    private const double SpectrumPeakMaxFallRowsPerSecond = 18.0;
     private const int SpectrumCellWidthPixels = 5;
     private const int SpectrumCellHeightPixels = 1;
     private const int SpectrumCellGapXPixels = 1;
-    private const int SpectrumCellGapYPixels = 1;
+    private const int SpectrumCellGapYPixels = 2;
+    private const int SpectrumMinRows = 8;
+    private const int SpectrumMaxRows = 18;
     private const int SpectrumBackgroundColor = unchecked((int)0xFF111111);
     private const int SpectrumInactiveColor = unchecked((int)0xFF1A1A1A);
     private const int SpectrumLowColor = unchecked((int)0xFF0979E8);
@@ -32,6 +36,7 @@ public partial class AudioPreviewWindow : Window
     private WriteableBitmap? _spectrumBitmap;
     private int[] _spectrumPixels = [];
     private double[] _spectrumPeakRows = [];
+    private double[] _spectrumPeakFallVelocities = [];
     private long[] _spectrumPeakHoldUntilTicks = [];
     private long[] _spectrumPeakLastUpdateTicks = [];
     private double[] _spectrumDisplayRows = [];
@@ -429,6 +434,7 @@ public partial class AudioPreviewWindow : Window
         _spectrumColumnCount = 0;
         _spectrumRowCount = 0;
         _spectrumPeakRows = [];
+        _spectrumPeakFallVelocities = [];
         _spectrumPeakHoldUntilTicks = [];
         _spectrumPeakLastUpdateTicks = [];
         _spectrumDisplayRows = [];
@@ -531,7 +537,7 @@ public partial class AudioPreviewWindow : Window
         int columnStep = SpectrumCellWidthPixels + SpectrumCellGapXPixels;
         int availableRows = Math.Max(1, (pixelHeight - 6 + SpectrumCellGapYPixels) / rowStep);
         int availableColumns = Math.Max(1, (pixelWidth - 8 + SpectrumCellGapXPixels) / columnStep);
-        int rows = Math.Clamp(availableRows, 12, 28);
+        int rows = Math.Clamp(availableRows, SpectrumMinRows, SpectrumMaxRows);
         int columns = Math.Clamp(availableColumns, 24, 220);
         int usedWidth = columns * SpectrumCellWidthPixels + (columns - 1) * SpectrumCellGapXPixels;
         int usedHeight = rows * SpectrumCellHeightPixels + (rows - 1) * SpectrumCellGapYPixels;
@@ -545,6 +551,7 @@ public partial class AudioPreviewWindow : Window
     private void ResetSpectrumMotionState()
     {
         _spectrumPeakRows = new double[_spectrumColumnCount];
+        _spectrumPeakFallVelocities = new double[_spectrumColumnCount];
         _spectrumPeakHoldUntilTicks = new long[_spectrumColumnCount];
         _spectrumPeakLastUpdateTicks = new long[_spectrumColumnCount];
         _spectrumDisplayRows = new double[_spectrumColumnCount];
@@ -570,6 +577,7 @@ public partial class AudioPreviewWindow : Window
             _spectrumRowCount == 0 ||
             _spectrumPixels.Length != _spectrumBitmapWidth * _spectrumBitmapHeight ||
             _spectrumPeakRows.Length != _spectrumColumnCount ||
+            _spectrumPeakFallVelocities.Length != _spectrumColumnCount ||
             _spectrumPeakHoldUntilTicks.Length != _spectrumColumnCount ||
             _spectrumPeakLastUpdateTicks.Length != _spectrumColumnCount ||
             _spectrumDisplayRows.Length != _spectrumColumnCount ||
@@ -668,6 +676,7 @@ public partial class AudioPreviewWindow : Window
         if (activeRows >= heldRows - 0.05)
         {
             _spectrumPeakRows[column] = activeRows;
+            _spectrumPeakFallVelocities[column] = 0;
             _spectrumPeakHoldUntilTicks[column] = nowTicks + SpectrumPeakHoldMilliseconds;
             _spectrumPeakLastUpdateTicks[column] = nowTicks;
             return activeRows;
@@ -677,8 +686,17 @@ public partial class AudioPreviewWindow : Window
         {
             long lastTicks = _spectrumPeakLastUpdateTicks[column] > 0 ? _spectrumPeakLastUpdateTicks[column] : nowTicks;
             double elapsedSeconds = Math.Clamp((nowTicks - lastTicks) / 1000.0, 0.0, 0.12);
-            heldRows = Math.Max(activeRows, heldRows - SpectrumPeakFallRowsPerSecond * elapsedSeconds);
+            double velocity = _spectrumPeakFallVelocities[column] > 0
+                ? _spectrumPeakFallVelocities[column]
+                : SpectrumPeakInitialFallRowsPerSecond;
+            double fallDistance = velocity * elapsedSeconds +
+                0.5 * SpectrumPeakGravityRowsPerSecondSquared * elapsedSeconds * elapsedSeconds;
+            velocity = Math.Min(
+                SpectrumPeakMaxFallRowsPerSecond,
+                velocity + SpectrumPeakGravityRowsPerSecondSquared * elapsedSeconds);
+            heldRows = Math.Max(activeRows, heldRows - fallDistance);
             _spectrumPeakRows[column] = heldRows;
+            _spectrumPeakFallVelocities[column] = heldRows <= activeRows + 0.001 ? 0 : velocity;
         }
 
         _spectrumPeakLastUpdateTicks[column] = nowTicks;

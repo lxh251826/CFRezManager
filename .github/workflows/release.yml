@@ -49,21 +49,48 @@ jobs:
           body: |
             CF Rez Manager ${{ github.ref_name }}
 
-            ## Highlights
+            ## 中文说明
+
+            CF Rez Manager 是用于浏览、搜索、解包和重新打包 LithTech / CrossFire `.rez` 资源包的 Windows WPF 工具，也支持直接预览扫描目录中的散文件资源。
+
+            ### 亮点
+
+            - 浏览、搜索、导出和重新打包 LithTech / CrossFire REZ 资源包。
+            - 预览 PNG、JPG、BMP、GIF、TIFF、DDS、TGA、DTX、WAV、OGG、MP3、SPR、LTC、DAT、模型和 world 地图资源。
+            - 解码 CrossFire 常见 LZMA 压缩 DTX/TGA/DAT/LTC/音频/文本/图片资源。
+            - 预览 DDS DXT 块压缩纹理和常见未压缩 DDS 纹理。
+            - 解析 LithTech SPR 动态精灵，并从 REZ 包或本地解包目录加载 DTX 帧自动播放动画。
+            - 预览更多 LTB 二进制模型和 LTA world/map 文本资源。
+            - 支持中文和英文界面切换，并记住语言、目录和视图大小。
+
+            ### v1.0.0 正式版
+
+            - 发布首个正式版，整理当前 REZ 浏览、搜索、解包、重新打包和多格式预览能力。
+            - SPR 缩略图优先使用真实 DTX 帧，双击预览支持动画播放、上一项/下一项导航和帧选择。
+            - 本地散文件 SPR 可以从相邻资源树查找 DTX 帧，方便检查已解包资源。
+            - 图片/SPR 预览窗口的按钮、播放状态和帧名称支持中英文同步刷新。
+            - 音频预览窗口改为无系统标题栏样式，并优化频谱峰值下落动画。
+            - 加入应用图标，更新中英文说明书，并让 GitHub Release 文案保持中英文双语。
+
+            ## English
+
+            CF Rez Manager is a Windows WPF tool for browsing, searching, extracting, and repacking LithTech / CrossFire `.rez` archives. It can also preview loose resource files in scanned folders.
+
+            ### Highlights
 
             - Browse, search, extract, and repack LithTech / CrossFire REZ archives.
-            - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, WAV, OGG, MP3, LTC, DAT, model, and world resources.
+            - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, WAV, OGG, MP3, SPR, LTC, DAT, model, and world resources.
             - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC/audio/text/image resources.
             - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
-            - Parse LithTech SPR files and preview sprite animations by loading referenced DTX frames.
+            - Parse LithTech SPR sprites and preview animations by loading referenced DTX frames from REZ archives or local extracted folders.
             - Preview more LTB binary models and LTA world/map text files.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
 
-            ## v0.11.0
+            ### v1.0.0 Official Release
 
-            - Added DDS thumbnails and original-size preview support for DXT1/DXT3/DXT5 block-compressed textures and common uncompressed RGB, RGBA, and luminance textures.
-            - Improved DDS texture parsing for mipmap and cubemap byte ranges, with thumbnail scaling to reduce memory use.
-            - Added LZMA-compressed preview paths for common raster image resources, with clearer RAW/LZMA/DXT badges and hover metadata.
-            - Made standalone preview-tool and model/LTC error messages follow the saved Chinese/English language setting.
-            - Switched model-preview free-look movement to WPF render-frame updates for smoother movement and cleaner shutdown cleanup.
-            - Refreshed Chinese and English documentation and added the support QR code.
+            - Shipped the first official release, stabilizing the current REZ browsing, search, extraction, repacking, and multi-format preview feature set.
+            - SPR thumbnails prefer real DTX frame images, and double-click previews support animation playback, previous/next navigation, and frame selection.
+            - Local loose SPR files can find DTX frames in neighboring resource trees, making extracted assets easier to inspect.
+            - Image/SPR preview controls, play state text, and frame names refresh with the selected Chinese/English language.
+            - Audio preview now uses a borderless window style and refined spectrum peak falloff.
+            - Added the application icon, refreshed Chinese and English documentation, and made GitHub Release notes bilingual.

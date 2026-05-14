@@ -618,10 +618,12 @@ public partial class MainWindow : Window
 
     private async Task ShowSpritePreviewAsync(ExplorerItem item)
     {
-        if (item.Archive is null || item.ArchiveFile is null)
+        List<ExplorerItem> spriteItems = GetCurrentSpritePreviewItems();
+        int spriteIndex = spriteItems.IndexOf(item);
+        if (spriteIndex < 0)
         {
-            await ShowPreviewToolAsync(item);
-            return;
+            spriteItems = [item];
+            spriteIndex = 0;
         }
 
         SetBusy(true, keepSearchEnabled: true);
@@ -629,26 +631,26 @@ public partial class MainWindow : Window
 
         try
         {
-            LithTechSpritePreviewDocument? preview = await Task.Run(() =>
-            {
-                return LithTechSpritePreviewLoader.TryLoadFromArchive(
-                    item.Archive,
-                    item.ArchiveFile,
-                    item.Name,
-                    out LithTechSpritePreviewDocument? document,
-                    out _)
-                    ? document
-                    : null;
-            });
-
-            if (preview is null)
+            ImagePreviewDocument? document = await LoadSpritePreviewDocumentAsync(item);
+            if (document is null)
             {
                 SetBusy(false, keepSearchEnabled: true);
                 await ShowTextPreviewAsync(item);
                 return;
             }
 
-            var window = new ImagePreviewWindow(item.Name, preview.Frames, preview.Info, preview.FrameRate)
+            Task<ImagePreviewDocument?> LoadDocumentAtAsync(int index)
+            {
+                return index >= 0 && index < spriteItems.Count
+                    ? LoadSpritePreviewDocumentAsync(spriteItems[index])
+                    : Task.FromResult<ImagePreviewDocument?>(null);
+            }
+
+            var window = new ImagePreviewWindow(
+                document,
+                spriteItems.Count > 1 ? LoadDocumentAtAsync : null,
+                spriteIndex,
+                spriteItems.Count)
             {
                 Owner = this,
                 ShowInTaskbar = true
@@ -664,6 +666,56 @@ public partial class MainWindow : Window
         {
             SetBusy(false, keepSearchEnabled: true);
         }
+    }
+
+    private List<ExplorerItem> GetCurrentSpritePreviewItems()
+    {
+        return ContentsList.Items
+            .OfType<ExplorerItem>()
+            .Where(IsSpritePreviewCandidate)
+            .ToList();
+    }
+
+    private static Task<ImagePreviewDocument?> LoadSpritePreviewDocumentAsync(ExplorerItem item)
+    {
+        return Task.Run(() =>
+        {
+            LithTechSpritePreviewDocument? preview;
+            bool loaded;
+
+            if (item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
+            {
+                loaded = LithTechSpritePreviewLoader.TryLoadFromArchive(
+                    item.Archive,
+                    item.ArchiveFile,
+                    item.Name,
+                    out preview,
+                    out _);
+            }
+            else if (item.Kind == ExplorerItemKind.LocalFile && !string.IsNullOrWhiteSpace(item.SourcePath))
+            {
+                loaded = LithTechSpritePreviewLoader.TryLoadFromLocalFile(
+                    item.SourcePath,
+                    item.Name,
+                    out preview,
+                    out _);
+            }
+            else
+            {
+                return null;
+            }
+
+            return loaded && preview is not null
+                ? CreateSpriteImageDocument(item.Name, preview)
+                : null;
+        });
+    }
+
+    private static ImagePreviewDocument CreateSpriteImageDocument(
+        string name,
+        LithTechSpritePreviewDocument preview)
+    {
+        return new ImagePreviewDocument(name, preview.Frames, preview.Info, preview.FrameRate);
     }
 
     private async Task ShowPreviewToolAsync(ExplorerItem item)
