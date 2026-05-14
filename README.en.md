@@ -44,6 +44,8 @@ Double-click a decodable image file to open an original-size preview window. The
 
 LTC files support thumbnails and double-click previews. The app first uses built-in decoders for plain LTC, LZMA-compressed LTC, and the CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR; decoded LTA text opens directly in the text preview window. If the content is a LithTech model, the app tries to render a model thumbnail and can open the standalone model preview window. LTC files that still cannot be recognized can fall back to `CFREZ_LTC_TO_LTA` or an external converter placed under the `tools` folder.
 
+DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open in the standalone model preview window; both plain DAT and LZMA-compressed DAT files are detected automatically, and LZMA-compressed resources show a `LZMA` badge in the thumbnail corner. CrossFire object DAT files decode into text previews, currently covering `Zoneman` areas, `EnvSound` ambience, `MovePath` paths, and `CameraAnimation` cutscene camera data.
+
 Mouse shortcuts:
 
 - Mouse back button: go to the previous viewed location.
@@ -92,5 +94,6 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `RezCrypto.cs`: Directory table decode and encode logic.
 - `ExplorerItem.cs`: In-app folder/archive item model.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
+- `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.

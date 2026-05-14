@@ -61,8 +61,10 @@ internal static class PreviewTool
     public static bool IsSupported(string fileName, string extension)
     {
         return LithTechModelDecoder.IsCandidate(extension) ||
+               LithTechWorldDatDecoder.IsCandidate(extension) ||
                ImageExtensions.Contains(extension) ||
                EncTextDecoder.IsCandidate(fileName, extension) ||
+               CrossFireDatDecoder.IsCandidate(extension) ||
                TextPreviewDecoder.IsPlainTextExtension(extension);
     }
 
@@ -97,6 +99,15 @@ internal static class PreviewTool
                 }
 
                 modelFallbackError = modelError;
+            }
+
+            if (LithTechWorldDatDecoder.IsCandidate(extension) &&
+                LithTechWorldDatDecoder.TryDecode(data, fileName, out LithTechModelDocument? worldDocument, out _) &&
+                worldDocument is not null)
+            {
+                window = new ModelPreviewWindow(fileName, worldDocument, FormatModelInfo(worldDocument));
+                window.ShowInTaskbar = true;
+                return true;
             }
 
             if (ImageExtensions.Contains(extension) &&
@@ -209,6 +220,19 @@ internal static class PreviewTool
 
             string info = $"ENC / Base64 / {decodedEncoding}, {data.Length:N0} bytes -> {decodedBytes.Length:N0} bytes";
             window = new TextPreviewWindow(fileName, decodedText, info);
+            return true;
+        }
+
+        if (CrossFireDatDecoder.IsCandidate(extension))
+        {
+            if (!CrossFireDatDecoder.TryDecode(data, fileName, out CrossFireDatDocument? datDocument, out errorMessage) ||
+                datDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{datDocument.StorageDescription}, version {datDocument.Version}, {datDocument.ObjectCount:N0} {datDocument.ObjectKind}, {datDocument.SourceByteCount:N0} bytes -> {datDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, datDocument.Text, info);
             return true;
         }
 

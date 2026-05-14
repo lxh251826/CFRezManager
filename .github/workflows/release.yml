@@ -57,4 +57,6 @@ jobs:
             - 支持 ENC / Base64 与常见文本文件预览
             - 支持 LTC 缩略图、文本查看和 LithTech 模型预览，兼容 CrossFire 常见 LTC 外层 XOR
             - 支持 LithTech / LTB 模型缩略图和独立模型预览窗口
+            - 支持 LithTech world DAT 地图缩略图和独立模型预览，兼容大型 LZMA 压缩地图
+            - 支持 CrossFire DAT 对象文本预览，包括 Zoneman、EnvSound、MovePath 和 CameraAnimation
             - 改进 DTX / TGA 解码，兼容 CF 常见 LZMA 压缩纹理和部分异常 TGA 数据

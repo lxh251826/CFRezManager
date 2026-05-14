@@ -24,7 +24,11 @@ public enum ImageStorageKind
     TgaInsertedFooterHeader,
     TgaRawPixels,
     LtcText,
-    LtcModel
+    LtcModel,
+    LithTechWorldDat,
+    LithTechWorldDatLzma,
+    CrossFireDat,
+    CrossFireDatLzma
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -35,6 +39,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     private const int MaxPreviewBytes = 128 * 1024 * 1024;
     private const int MaxTextPreviewBytes = 8 * 1024 * 1024;
     private const int MaxModelPreviewBytes = 128 * 1024 * 1024;
+    private const int MaxWorldDatPreviewBytes = 256 * 1024 * 1024;
+    private const int MaxWorldDatThumbnailTriangles = 40_000;
     private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "png",
@@ -88,6 +94,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
         ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "RAW",
         ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LTC",
+        ImageStorageKind.LithTechWorldDat => "DAT",
+        ImageStorageKind.LithTechWorldDatLzma => "LZMA",
+        ImageStorageKind.CrossFireDat => "DAT",
+        ImageStorageKind.CrossFireDatLzma => "LZMA",
         _ => null
     };
 
@@ -97,6 +107,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
         ImageStorageKind.DtxUncompressed or ImageStorageKind.TgaUncompressed => "R",
         ImageStorageKind.LtcText or ImageStorageKind.LtcModel => "LT",
+        ImageStorageKind.LithTechWorldDat => "DT",
+        ImageStorageKind.LithTechWorldDatLzma => "LZ",
+        ImageStorageKind.CrossFireDat => "DT",
+        ImageStorageKind.CrossFireDatLzma => "LZ",
         _ => null
     };
 
@@ -189,6 +203,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.LtcModel)
                 {
                     lines.Add("LTC preview: decoded model");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LithTechWorldDat)
+                {
+                    lines.Add("DAT preview: LithTech world");
+                }
+                else if (_imageStorageKind is ImageStorageKind.LithTechWorldDatLzma)
+                {
+                    lines.Add("DAT preview: LZMA-compressed LithTech world");
+                }
+                else if (_imageStorageKind is ImageStorageKind.CrossFireDat)
+                {
+                    lines.Add("DAT preview: decoded CrossFire object data");
+                }
+                else if (_imageStorageKind is ImageStorageKind.CrossFireDatLzma)
+                {
+                    lines.Add("DAT preview: LZMA-compressed CrossFire object data");
                 }
 
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
@@ -340,7 +370,9 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                Archive is not null &&
                ArchiveFile is not null &&
                (ThumbnailExtensions.Contains(ArchiveFile.Extension) ||
-                LithTechModelDecoder.IsCandidate(ArchiveFile.Extension));
+                LithTechModelDecoder.IsCandidate(ArchiveFile.Extension) ||
+                LithTechWorldDatDecoder.IsCandidate(ArchiveFile.Extension) ||
+                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension));
     }
 
     private bool CanLoadImagePreview()
@@ -358,6 +390,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                ArchiveFile is not null &&
                (EncTextDecoder.IsCandidate(Name, ArchiveFile.Extension) ||
                 CrossFireLtcDecoder.IsCandidate(ArchiveFile.Extension) ||
+                CrossFireDatDecoder.IsCandidate(ArchiveFile.Extension) ||
                 TextPreviewDecoder.IsPlainTextExtension(ArchiveFile.Extension));
     }
 
@@ -366,7 +399,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return Kind == ExplorerItemKind.RezFile &&
                Archive is not null &&
                ArchiveFile is not null &&
-               LithTechModelDecoder.IsCandidate(ArchiveFile.Extension);
+               (LithTechModelDecoder.IsCandidate(ArchiveFile.Extension) ||
+                LithTechWorldDatDecoder.IsCandidate(ArchiveFile.Extension));
     }
 
     private ImageSource? LoadRezThumbnail()
@@ -379,11 +413,30 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return null;
             }
 
-            int maxBytes = LithTechModelDecoder.IsCandidate(extension) ? MaxModelPreviewBytes : MaxThumbnailBytes;
+            int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
+                ? MaxWorldDatPreviewBytes
+                : LithTechModelDecoder.IsCandidate(extension)
+                    ? MaxModelPreviewBytes
+                    : CrossFireDatDecoder.IsCandidate(extension)
+                        ? MaxModelPreviewBytes
+                        : MaxThumbnailBytes;
             byte[]? data = ReadArchiveFileBytes(maxBytes);
             if (data is null)
             {
                 return null;
+            }
+
+            if (LithTechWorldDatDecoder.IsCandidate(extension) &&
+                LithTechWorldDatDecoder.TryDecode(data, Name, out LithTechModelDocument? worldDocument, out _) &&
+                worldDocument is not null)
+            {
+                SetImageStorageKind(GetWorldDatStorageKind(data));
+                return LithTechModelThumbnailRenderer.TryRender(SimplifyForThumbnail(worldDocument, MaxWorldDatThumbnailTriangles));
+            }
+
+            if (CrossFireDatDecoder.IsCandidate(extension))
+            {
+                return LoadCrossFireDatThumbnail(data);
             }
 
             if (CrossFireLtcDecoder.IsCandidate(extension))
@@ -448,6 +501,139 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
         SetImageStorageKind(ImageStorageKind.LtcText);
         return TextThumbnailRenderer.TryRender(Name, document.Text, "LTC");
+    }
+
+    private ImageSource? LoadCrossFireDatThumbnail(byte[] data)
+    {
+        if (!CrossFireDatDecoder.TryDecode(data, Name, out CrossFireDatDocument? document, out _) ||
+            document is null)
+        {
+            return null;
+        }
+
+        SetImageStorageKind(GetCrossFireDatStorageKind(data));
+        return TextThumbnailRenderer.TryRender(Name, document.Text, "DAT");
+    }
+
+    private static LithTechModelDocument SimplifyForThumbnail(LithTechModelDocument document, int maxTriangles)
+    {
+        if (document.TriangleCount <= maxTriangles)
+        {
+            return document;
+        }
+
+        var meshes = new List<LithTechMesh>();
+        int remainingTriangles = maxTriangles;
+        int totalTriangles = document.TriangleCount;
+
+        foreach (LithTechMesh mesh in document.Meshes)
+        {
+            if (remainingTriangles <= 0)
+            {
+                break;
+            }
+
+            int meshTriangles = mesh.TriangleIndices.Count / 3;
+            if (meshTriangles == 0)
+            {
+                continue;
+            }
+
+            int targetTriangles = Math.Max(1, (int)Math.Round((double)meshTriangles / totalTriangles * maxTriangles));
+            targetTriangles = Math.Min(targetTriangles, remainingTriangles);
+            LithTechMesh? simplified = SimplifyMeshForThumbnail(mesh, targetTriangles);
+            if (simplified is null)
+            {
+                continue;
+            }
+
+            meshes.Add(simplified);
+            remainingTriangles -= simplified.TriangleIndices.Count / 3;
+        }
+
+        return meshes.Count == 0
+            ? document
+            : new LithTechModelDocument(
+                document.Name,
+                meshes,
+                $"{document.StorageDescription} thumbnail sample",
+                document.SourceByteCount,
+                document.DecodedByteCount);
+    }
+
+    private static LithTechMesh? SimplifyMeshForThumbnail(LithTechMesh mesh, int targetTriangles)
+    {
+        int meshTriangles = mesh.TriangleIndices.Count / 3;
+        if (targetTriangles <= 0 || meshTriangles == 0)
+        {
+            return null;
+        }
+
+        if (meshTriangles <= targetTriangles)
+        {
+            return mesh;
+        }
+
+        int stride = Math.Max(1, meshTriangles / targetTriangles);
+        var vertexMap = new Dictionary<int, int>();
+        var vertices = new List<LithTechVector3>();
+        var indices = new List<int>(targetTriangles * 3);
+
+        for (int triangle = 0; triangle < meshTriangles && indices.Count / 3 < targetTriangles; triangle += stride)
+        {
+            int triangleOffset = triangle * 3;
+            int a = mesh.TriangleIndices[triangleOffset];
+            int b = mesh.TriangleIndices[triangleOffset + 1];
+            int c = mesh.TriangleIndices[triangleOffset + 2];
+            if (!TryAddMappedTriangle(mesh, a, b, c, vertexMap, vertices, indices))
+            {
+                continue;
+            }
+        }
+
+        return indices.Count >= 3
+            ? new LithTechMesh(mesh.Name, vertices, indices)
+            : null;
+    }
+
+    private static bool TryAddMappedTriangle(
+        LithTechMesh mesh,
+        int a,
+        int b,
+        int c,
+        Dictionary<int, int> vertexMap,
+        List<LithTechVector3> vertices,
+        List<int> indices)
+    {
+        if (a < 0 || b < 0 || c < 0 ||
+            a >= mesh.Vertices.Count ||
+            b >= mesh.Vertices.Count ||
+            c >= mesh.Vertices.Count)
+        {
+            return false;
+        }
+
+        indices.Add(GetMappedIndex(mesh, a, vertexMap, vertices));
+        indices.Add(GetMappedIndex(mesh, b, vertexMap, vertices));
+        indices.Add(GetMappedIndex(mesh, c, vertexMap, vertices));
+        return true;
+    }
+
+    private static int GetMappedIndex(
+        LithTechMesh mesh,
+        int sourceIndex,
+        Dictionary<int, int> vertexMap,
+        List<LithTechVector3> vertices)
+    {
+        if (vertexMap.TryGetValue(sourceIndex, out int mappedIndex))
+        {
+            return mappedIndex;
+        }
+
+        mappedIndex = vertices.Count;
+        vertexMap.Add(sourceIndex, mappedIndex);
+        vertices.Add(mesh.Vertices[sourceIndex]);
+        return mappedIndex;
     }
 
     private ImageSource? LoadRezPreviewImage()
@@ -530,6 +716,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     ltcDocument.DecodedByteCount);
             }
 
+            if (CrossFireDatDecoder.IsCandidate(extension))
+            {
+                if (!CrossFireDatDecoder.TryDecode(data, Name, out CrossFireDatDocument? datDocument, out _) ||
+                    datDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    datDocument.Text,
+                    $"{datDocument.StorageDescription} / version {datDocument.Version}, {datDocument.ObjectCount:N0} {datDocument.ObjectKind}",
+                    TextPreviewStorageKind.CrossFireDat,
+                    datDocument.SourceByteCount,
+                    datDocument.DecodedByteCount);
+            }
+
             if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
             {
                 return null;
@@ -553,10 +755,28 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         try
         {
             string? extension = ArchiveFile?.Extension;
-            byte[]? data = ReadArchiveFileBytes(MaxModelPreviewBytes);
-            return data is not null &&
-                   extension is not null &&
-                   LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _)
+            if (extension is null)
+            {
+                return null;
+            }
+
+            int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
+                ? MaxWorldDatPreviewBytes
+                : MaxModelPreviewBytes;
+            byte[]? data = ReadArchiveFileBytes(maxBytes);
+            if (data is null)
+            {
+                return null;
+            }
+
+            if (LithTechWorldDatDecoder.IsCandidate(extension) &&
+                LithTechWorldDatDecoder.TryDecode(data, Name, out LithTechModelDocument? worldDocument, out _) &&
+                worldDocument is not null)
+            {
+                return worldDocument;
+            }
+
+            return LithTechModelDecoder.TryDecode(data, Name, extension, out LithTechModelDocument? document, out _)
                 ? document
                 : null;
         }
@@ -692,12 +912,27 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 : ImageStorageKind.TgaUncompressed;
     }
 
+    private static ImageStorageKind GetWorldDatStorageKind(byte[] data)
+    {
+        return LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.LithTechWorldDatLzma
+            : ImageStorageKind.LithTechWorldDat;
+    }
+
+    private static ImageStorageKind GetCrossFireDatStorageKind(byte[] data)
+    {
+        return LzmaAloneDecoder.IsCompressed(data)
+            ? ImageStorageKind.CrossFireDatLzma
+            : ImageStorageKind.CrossFireDat;
+    }
+
     private static string GetImageFormatLabel(ImageStorageKind storageKind)
     {
         return storageKind switch
         {
             ImageStorageKind.DtxLzmaCompressed or ImageStorageKind.DtxUncompressed => "DTX",
             ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
+            ImageStorageKind.LithTechWorldDat or ImageStorageKind.LithTechWorldDatLzma or ImageStorageKind.CrossFireDat or ImageStorageKind.CrossFireDatLzma => "DAT",
             _ => "Image"
         };
     }

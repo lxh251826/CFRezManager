@@ -6,7 +6,8 @@ public enum TextPreviewStorageKind
 {
     Plain,
     EncBase64,
-    LtcConverted
+    LtcConverted,
+    CrossFireDat
 }
 
 public sealed record TextPreviewDocument(
