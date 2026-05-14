@@ -55,11 +55,13 @@ jobs:
             - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, LTC, DAT, model, and world resources.
             - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC resources.
             - Parse LithTech SPR files and preview sprite animations by loading referenced DTX frames.
+            - Preview more LTB binary models and LTA world/map text files.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
 
-            ## v0.8.0
+            ## v0.9.0
 
-            - Added SPR animation preview with frame-rate playback, pause/resume, and manual frame selection.
-            - Added LZMA-compressed and uncompressed LithTech SPR parsing.
-            - Added fallback SPR frame-table text preview when referenced DTX frames are unavailable.
+            - Expanded native LTB binary model parsing for more mesh-table locations, vertex layouts, trailing mesh data, and mesh type variants.
+            - Added LTA world/map text parsing, converting polyhedron point lists and face indices into previewable map meshes.
+            - Improved the model preview window with free-look viewing, WASD movement, Shift fast movement, mouse-wheel movement, and steadier reset behavior.
+            - Improved the image preview window with previous/next navigation and aspect-preserving thumbnail decode sizing.
             - Refreshed Chinese and English documentation.

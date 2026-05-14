@@ -448,7 +448,83 @@ public partial class MainWindow : Window
 
     private async Task ShowImagePreviewAsync(ExplorerItem item)
     {
-        await ShowPreviewToolAsync(item);
+        List<ExplorerItem> imageItems = GetCurrentImagePreviewItems();
+        int imageIndex = imageItems.IndexOf(item);
+        if (imageIndex < 0)
+        {
+            imageItems = [item];
+            imageIndex = 0;
+        }
+
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingPreview", item.Name);
+
+        try
+        {
+            ImagePreviewDocument? document = await LoadImagePreviewDocumentAsync(item);
+            if (document is null)
+            {
+                SetStatus("PreviewUnsupported", item.Name);
+                return;
+            }
+
+            Task<ImagePreviewDocument?> LoadDocumentAtAsync(int index)
+            {
+                return index >= 0 && index < imageItems.Count
+                    ? LoadImagePreviewDocumentAsync(imageItems[index])
+                    : Task.FromResult<ImagePreviewDocument?>(null);
+            }
+
+            var window = new ImagePreviewWindow(
+                document,
+                imageItems.Count > 1 ? LoadDocumentAtAsync : null,
+                imageIndex,
+                imageItems.Count)
+            {
+                Owner = this,
+                ShowInTaskbar = true
+            };
+            window.Show();
+            SetStatus("PreviewOpened", item.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
+    }
+
+    private List<ExplorerItem> GetCurrentImagePreviewItems()
+    {
+        return ContentsList.Items
+            .OfType<ExplorerItem>()
+            .Where(item => item.IsImagePreviewCandidate)
+            .ToList();
+    }
+
+    private async Task<ImagePreviewDocument?> LoadImagePreviewDocumentAsync(ExplorerItem item)
+    {
+        IReadOnlyList<ImagePreviewFrame> frames = await item.LoadPreviewFramesAsync();
+        return frames.Count == 0
+            ? null
+            : new ImagePreviewDocument(item.Name, frames, FormatImagePreviewInfo(item));
+    }
+
+    private string? FormatImagePreviewInfo(ExplorerItem item)
+    {
+        return item.ImageStorageKind switch
+        {
+            ImageStorageKind.DtxLzmaCompressed => T("PreviewDtxLzma"),
+            ImageStorageKind.DtxUncompressed => T("PreviewDtxRaw"),
+            ImageStorageKind.TgaLzmaCompressed => T("PreviewTgaLzma"),
+            ImageStorageKind.TgaInsertedFooterHeader => T("PreviewTgaRepaired"),
+            ImageStorageKind.TgaRawPixels => T("PreviewTgaRawPixels"),
+            ImageStorageKind.TgaUncompressed => T("PreviewTgaRaw"),
+            _ => null
+        };
     }
 
     private async Task ShowSpritePreviewAsync(ExplorerItem item)

@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v0.8.0
+git tag v0.9.0
 git push origin main
-git push origin v0.8.0
+git push origin v0.9.0
 ```
 
 ## Browse REZ Archives
@@ -52,10 +52,23 @@ Use the bottom-right `Size` slider to switch views: smaller values use a list vi
 - PNG, JPG, BMP, GIF, TIFF, TGA, and DTX images lazy-load thumbnails.
 - DTX and TGA decoding covers plain textures, LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
 - DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
+- The image preview window supports previous/next navigation across the current image list, using either the toolbar buttons or the left/right arrow keys.
 - SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
 - LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
+- LTB files support additional binary mesh-table offsets, vertex layouts, trailing mesh data, and mesh type variants, so more exported CrossFire models can be previewed directly.
+- LTA files support both `lt-model` model text and `world` map text. World `polyhedron`, `pointlist`, and `editpoly/f` face indices are converted into previewable map meshes.
 - DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open the model preview window. CrossFire object DAT files decode into text previews for `Zoneman`, `EnvSound`, `MovePath`, and `CameraAnimation`.
 - LZMA-compressed resources show an `LZMA` badge in the thumbnail corner.
+
+## Model Preview Controls
+
+- Left-click the model viewport: enter free-look mode.
+- Move the mouse: adjust the view direction.
+- `W` / `A` / `S` / `D`: move forward, left, backward, and right.
+- `Shift`: move faster.
+- Mouse wheel: move forward or backward along the current view direction.
+- Right-click or `Esc`: leave free-look mode.
+- `Reset View`: reset the camera position and direction.
 
 ## Mouse Shortcuts
 
@@ -99,12 +112,13 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
 
-## v0.8.0 Changes
+## v0.9.0 Changes
 
-- Added LithTech SPR parsing for both LZMA-compressed and uncompressed SPR files.
-- Added SPR animation preview with frame-rate playback, pause/resume, and manual frame selection.
-- Added fallback SPR text preview when referenced DTX frames cannot be found.
-- Rewrote the Chinese documentation and refreshed the English documentation and GitHub Release notes.
+- Expanded native LTB binary model parsing for more mesh-table locations, vertex layouts, trailing mesh data, and mesh type variants.
+- Added LTA world/map text parsing, converting `polyhedron`, `pointlist`, and `editpoly/f` face data into previewable map meshes.
+- Improved the model preview window with free-look viewing, WASD movement, Shift fast movement, mouse-wheel movement, and steadier reset behavior.
+- Improved the image preview window with previous/next navigation and aspect-preserving thumbnail decode sizing.
+- Refreshed the Chinese and English documentation and GitHub Release notes.
 
 ## Project Files
 
@@ -117,7 +131,7 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
-- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`: LithTech model parsing and rendering.
+- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`: LithTech model, LTB/LTA world parsing, and rendering.
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.

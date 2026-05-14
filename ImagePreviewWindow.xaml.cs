@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -8,20 +9,27 @@ namespace CFRezManager;
 
 public partial class ImagePreviewWindow : Window
 {
-    private readonly string _imageName;
-    private readonly string? _imageInfo;
-    private readonly IReadOnlyList<ImagePreviewFrame> _frames;
+    private const double WindowWorkAreaMargin = 80;
+
+    private string _imageName = string.Empty;
+    private string? _imageInfo;
+    private IReadOnlyList<ImagePreviewFrame> _frames = Array.Empty<ImagePreviewFrame>();
     private readonly DispatcherTimer? _animationTimer;
+    private readonly Func<int, Task<ImagePreviewDocument?>>? _loadDocumentAsync;
+    private int _documentIndex;
+    private int _documentCount = 1;
     private int _currentFrameIndex;
+    private bool _isDocumentLoading;
     private bool _isPlaying;
+    private bool _isUpdatingFrameSelector;
 
     public ImagePreviewWindow(string imageName, ImageSource imageSource, string? imageInfo = null)
-        : this(imageName, new[] { new ImagePreviewFrame("Original", imageSource) }, imageInfo)
+        : this(new ImagePreviewDocument(imageName, new[] { new ImagePreviewFrame("Original", imageSource) }, imageInfo))
     {
     }
 
     public ImagePreviewWindow(string imageName, IReadOnlyList<ImagePreviewFrame> frames, string? imageInfo = null)
-        : this(imageName, frames, imageInfo, animationFrameRate: null)
+        : this(new ImagePreviewDocument(imageName, frames, imageInfo))
     {
     }
 
@@ -30,56 +38,60 @@ public partial class ImagePreviewWindow : Window
         IReadOnlyList<ImagePreviewFrame> frames,
         string? imageInfo,
         double? animationFrameRate)
+        : this(new ImagePreviewDocument(imageName, frames, imageInfo, animationFrameRate))
     {
-        if (frames.Count == 0)
-        {
-            throw new ArgumentException("At least one preview frame is required.", nameof(frames));
-        }
+    }
 
-        _imageName = imageName;
-        _imageInfo = imageInfo;
-        _frames = frames;
+    public ImagePreviewWindow(
+        ImagePreviewDocument document,
+        Func<int, Task<ImagePreviewDocument?>>? loadDocumentAsync = null,
+        int documentIndex = 0,
+        int documentCount = 1)
+    {
+        if (document.Frames.Count == 0)
+        {
+            throw new ArgumentException("At least one preview frame is required.", nameof(document));
+        }
 
         InitializeComponent();
 
-        Rect workArea = SystemParameters.WorkArea;
-        MaxWidth = Math.Max(MinWidth, workArea.Width - 80);
-        MaxHeight = Math.Max(MinHeight, workArea.Height - 80);
+        _loadDocumentAsync = loadDocumentAsync;
+        _documentCount = Math.Max(1, documentCount);
+        _documentIndex = Math.Clamp(documentIndex, 0, _documentCount - 1);
 
-        if (frames.Count > 1)
-        {
-            FrameSelector.ItemsSource = frames;
-            FrameSelector.Visibility = Visibility.Visible;
-            PreviewInfoBar.Visibility = Visibility.Visible;
-        }
-
-        if (frames.Count > 1 && animationFrameRate is > 0)
+        if (document.Frames.Count > 1 && document.AnimationFrameRate is > 0)
         {
             PlayPauseButton.Visibility = Visibility.Visible;
             PreviewInfoBar.Visibility = Visibility.Visible;
             _animationTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(animationFrameRate.Value, 1.0, 60.0))
+                Interval = TimeSpan.FromSeconds(1.0 / Math.Clamp(document.AnimationFrameRate.Value, 1.0, 60.0))
             };
             _animationTimer.Tick += AnimationTimer_Tick;
             _isPlaying = true;
         }
 
-        SetFrame(0);
-        if (frames.Count > 1)
-        {
-            FrameSelector.SelectedIndex = 0;
-        }
-
+        SetDocument(document);
+        SetInitialWindowSize();
         _animationTimer?.Start();
     }
 
     private void FrameSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (FrameSelector.SelectedIndex >= 0)
+        if (!_isUpdatingFrameSelector && FrameSelector.SelectedIndex >= 0)
         {
             SetFrame(FrameSelector.SelectedIndex);
         }
+    }
+
+    private async void PreviousImageButton_Click(object sender, RoutedEventArgs e)
+    {
+        await NavigateDocumentAsync(-1);
+    }
+
+    private async void NextImageButton_Click(object sender, RoutedEventArgs e)
+    {
+        await NavigateDocumentAsync(1);
     }
 
     private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
@@ -120,6 +132,82 @@ public partial class ImagePreviewWindow : Window
         base.OnClosed(e);
     }
 
+    protected override async void OnKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Left && PreviousImageButton.IsEnabled)
+        {
+            e.Handled = true;
+            await NavigateDocumentAsync(-1);
+            return;
+        }
+
+        if (e.Key == Key.Right && NextImageButton.IsEnabled)
+        {
+            e.Handled = true;
+            await NavigateDocumentAsync(1);
+            return;
+        }
+
+        base.OnKeyDown(e);
+    }
+
+    private async Task NavigateDocumentAsync(int delta)
+    {
+        if (!HasDocumentNavigation ||
+            _loadDocumentAsync is null ||
+            _isDocumentLoading)
+        {
+            return;
+        }
+
+        int targetIndex = _documentIndex + delta;
+        if (targetIndex < 0 || targetIndex >= _documentCount)
+        {
+            return;
+        }
+
+        _isDocumentLoading = true;
+        UpdateNavigationState();
+        try
+        {
+            ImagePreviewDocument? document = await _loadDocumentAsync(targetIndex);
+            if (document is null || document.Frames.Count == 0)
+            {
+                return;
+            }
+
+            _documentIndex = targetIndex;
+            SetDocument(document);
+            PreviewScrollViewer.ScrollToHome();
+        }
+        finally
+        {
+            _isDocumentLoading = false;
+            UpdateNavigationState();
+        }
+    }
+
+    private void SetDocument(ImagePreviewDocument document)
+    {
+        _imageName = document.ImageName;
+        _imageInfo = document.ImageInfo;
+        _frames = document.Frames;
+        _currentFrameIndex = 0;
+
+        _isUpdatingFrameSelector = true;
+        FrameSelector.ItemsSource = null;
+        FrameSelector.Visibility = _frames.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        if (_frames.Count > 1)
+        {
+            FrameSelector.ItemsSource = _frames;
+            FrameSelector.SelectedIndex = 0;
+        }
+
+        _isUpdatingFrameSelector = false;
+        SetFrame(0);
+        UpdateNavigationState();
+    }
+
     private void SetFrame(int index)
     {
         if (index < 0 || index >= _frames.Count)
@@ -145,26 +233,73 @@ public partial class ImagePreviewWindow : Window
         string? frameInfo = _frames.Count > 1
             ? dimensions is null ? frame.Name : $"{frame.Name} - {dimensions}"
             : null;
-        string? infoText = CombineInfo(_imageInfo, frameInfo);
-        if (string.IsNullOrWhiteSpace(infoText))
-        {
-            PreviewInfoText.Text = string.Empty;
-            PreviewInfoBar.Visibility = _frames.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-        }
-        else
-        {
-            PreviewInfoText.Text = infoText;
-            PreviewInfoBar.Visibility = Visibility.Visible;
-        }
+        string? documentInfo = HasDocumentNavigation ? $"{_documentIndex + 1:N0} / {_documentCount:N0}" : null;
+        string? infoText = CombineInfo(CombineInfo(documentInfo, _imageInfo), frameInfo);
+        PreviewInfoText.Text = string.IsNullOrWhiteSpace(infoText) ? string.Empty : infoText;
+        UpdateInfoBarVisibility();
 
         string titleFrame = dimensions is null ? frame.Name : $"{frame.Name} ({dimensions})";
         Title = _frames.Count > 1
             ? $"{_imageName} - {titleFrame}"
             : string.IsNullOrWhiteSpace(dimensions) ? _imageName : $"{_imageName} ({dimensions})";
+        if (HasDocumentNavigation)
+        {
+            Title = $"{_documentIndex + 1:N0} / {_documentCount:N0} - {Title}";
+        }
+
         if (!string.IsNullOrWhiteSpace(_imageInfo))
         {
             Title += $" - {_imageInfo}";
         }
+    }
+
+    private bool HasDocumentNavigation => _loadDocumentAsync is not null && _documentCount > 1;
+
+    private void UpdateNavigationState()
+    {
+        Visibility visibility = HasDocumentNavigation ? Visibility.Visible : Visibility.Collapsed;
+        PreviousImageButton.Visibility = visibility;
+        NextImageButton.Visibility = visibility;
+        PreviousImageButton.IsEnabled = HasDocumentNavigation && !_isDocumentLoading && _documentIndex > 0;
+        NextImageButton.IsEnabled = HasDocumentNavigation && !_isDocumentLoading && _documentIndex < _documentCount - 1;
+        UpdateInfoBarVisibility();
+    }
+
+    private void UpdateInfoBarVisibility()
+    {
+        PreviewInfoBar.Visibility = PreviewInfoText.Text.Length > 0 ||
+                                    _frames.Count > 1 ||
+                                    HasDocumentNavigation ||
+                                    _animationTimer is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void SetInitialWindowSize()
+    {
+        Rect workArea = SystemParameters.WorkArea;
+        double maxWidth = Math.Max(MinWidth, workArea.Width - WindowWorkAreaMargin);
+        double maxHeight = Math.Max(MinHeight, workArea.Height - WindowWorkAreaMargin);
+
+        MaxWidth = maxWidth;
+        MaxHeight = maxHeight;
+
+        PreviewRoot.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double desiredWidth = PreviewRoot.DesiredSize.Width + GetWindowChromeWidth();
+        double desiredHeight = PreviewRoot.DesiredSize.Height + GetWindowChromeHeight();
+
+        Width = Math.Clamp(Math.Ceiling(desiredWidth), MinWidth, maxWidth);
+        Height = Math.Clamp(Math.Ceiling(desiredHeight), MinHeight, maxHeight);
+    }
+
+    private static double GetWindowChromeWidth()
+    {
+        return SystemParameters.ResizeFrameVerticalBorderWidth * 2;
+    }
+
+    private static double GetWindowChromeHeight()
+    {
+        return SystemParameters.CaptionHeight + (SystemParameters.ResizeFrameHorizontalBorderHeight * 2);
     }
 
     private static string? GetDimensions(ImageSource source)

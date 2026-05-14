@@ -48,6 +48,7 @@ internal static class LithTechModelDecoder
     private const ushort LtbMeshTypeSkinnedAlt = 3;
     private const ushort LtbMeshTypeSkinned = 4;
     private const ushort LtbMeshTypeTwoExtraFloats = 5;
+    private const ushort LtbMeshTypeSkinnedExtraFloat = 6;
 
     static LithTechModelDecoder()
     {
@@ -175,6 +176,25 @@ internal static class LithTechModelDecoder
         errorMessage = null;
         ReadOnlySpan<byte> data = rawLtb;
 
+        string? firstParseError = null;
+        foreach (LtbMeshTableCandidate candidate in GetLtbMeshTableCandidates(data))
+        {
+            if (TryParseLtbMeshes(data, candidate.FirstMeshOffset, candidate.MeshCount, out List<LithTechMesh>? meshes, out string? candidateError) &&
+                meshes is not null)
+            {
+                document = new LithTechModelDocument(fallbackName, meshes, storageDescription, sourceByteCount, decodedByteCount);
+                return true;
+            }
+
+            firstParseError ??= candidateError;
+        }
+
+        if (!string.IsNullOrWhiteSpace(firstParseError))
+        {
+            errorMessage = firstParseError;
+            return false;
+        }
+
         if (!TryReadUInt16(data, LtbCommandLineLengthOffset, out ushort commandLineLength))
         {
             errorMessage = "LTB 文件太短，无法读取文件头。";
@@ -195,7 +215,156 @@ internal static class LithTechModelDecoder
             return false;
         }
 
-        var meshes = new List<LithTechMesh>((int)Math.Min(meshCount, 64));
+        errorMessage = "LTB 中没有可预览的 mesh 几何数据。";
+        return false;
+    }
+
+    private static List<LtbMeshTableCandidate> GetLtbMeshTableCandidates(ReadOnlySpan<byte> data)
+    {
+        var candidates = new List<LtbMeshTableCandidate>();
+        var seenFirstMeshOffsets = new HashSet<int>();
+
+        if (TryReadUInt16(data, LtbCommandLineLengthOffset, out ushort commandLineLength))
+        {
+            int meshCountOffset = LtbMeshCountOffset + commandLineLength;
+            int firstMeshOffset = LtbFirstMeshOffset + commandLineLength;
+            if (TryReadUInt32(data, meshCountOffset, out uint meshCount) &&
+                IsPlausibleLtbMeshCount(meshCount) &&
+                seenFirstMeshOffsets.Add(firstMeshOffset))
+            {
+                candidates.Add(new LtbMeshTableCandidate(meshCountOffset, firstMeshOffset, meshCount));
+            }
+        }
+
+        int scanLimit = Math.Min(data.Length - 2, 4096);
+        for (int firstMeshOffset = 4; firstMeshOffset <= scanLimit; firstMeshOffset++)
+        {
+            int meshCountOffset = firstMeshOffset - sizeof(uint);
+            if (!TryReadUInt32(data, meshCountOffset, out uint meshCount) ||
+                !IsPlausibleLtbMeshCount(meshCount) ||
+                !seenFirstMeshOffsets.Add(firstMeshOffset))
+            {
+                continue;
+            }
+
+            if (LooksLikeLtbMeshAt(data, firstMeshOffset))
+            {
+                candidates.Add(new LtbMeshTableCandidate(meshCountOffset, firstMeshOffset, meshCount));
+            }
+        }
+
+        return candidates;
+    }
+
+    private static bool IsPlausibleLtbMeshCount(uint meshCount)
+    {
+        return meshCount > 0 && meshCount <= MaxLtbMeshCount;
+    }
+
+    private static bool LooksLikeLtbMeshAt(ReadOnlySpan<byte> data, int position)
+    {
+        if (!TryReadUInt16(data, position, out ushort nameLength) ||
+            nameLength > 512)
+        {
+            return false;
+        }
+
+        int nameStart = position + sizeof(ushort);
+        int meshBaseOffset = nameStart + nameLength;
+        if (nameStart < 0 ||
+            meshBaseOffset < 0 ||
+            meshBaseOffset + LtbFirstVertexOffset >= data.Length ||
+            !LooksLikeLtbStringBytes(data.Slice(nameStart, nameLength)))
+        {
+            return false;
+        }
+
+        if (!TryReadUInt16(data, meshBaseOffset + LtbMeshVertexCountOffset, out ushort vertexCount) ||
+            !TryReadUInt16(data, meshBaseOffset + LtbMeshFaceCountOffset, out ushort faceCount) ||
+            vertexCount == 0 ||
+            faceCount == 0)
+        {
+            return false;
+        }
+
+        return TryFindLtbMeshLayout(
+            data,
+            meshBaseOffset,
+            vertexCount,
+            faceCount,
+            GetLtbVertexLookupByteCount(data),
+            requireFollowingMesh: false,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _);
+    }
+
+    private static bool LooksLikeLtbStringBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty)
+        {
+            return true;
+        }
+
+        bool sawText = false;
+        foreach (byte value in bytes)
+        {
+            if (value == 0)
+            {
+                continue;
+            }
+
+            if (value < 0x20 && value != (byte)'\t')
+            {
+                return false;
+            }
+
+            sawText = true;
+        }
+
+        return sawText;
+    }
+
+    private static bool LooksLikeLtbMeshHeaderAt(ReadOnlySpan<byte> data, int position)
+    {
+        if (!TryReadUInt16(data, position, out ushort nameLength) ||
+            nameLength > 512)
+        {
+            return false;
+        }
+
+        int nameStart = position + sizeof(ushort);
+        int meshBaseOffset = nameStart + nameLength;
+        if (nameStart < 0 ||
+            meshBaseOffset < 0 ||
+            meshBaseOffset + LtbFirstVertexOffset >= data.Length ||
+            !LooksLikeLtbStringBytes(data.Slice(nameStart, nameLength)))
+        {
+            return false;
+        }
+
+        return TryReadUInt16(data, meshBaseOffset + LtbMeshVertexCountOffset, out ushort vertexCount) &&
+               TryReadUInt16(data, meshBaseOffset + LtbMeshFaceCountOffset, out ushort faceCount) &&
+               vertexCount > 0 &&
+               faceCount > 0;
+    }
+
+    private static bool TryParseLtbMeshes(
+        ReadOnlySpan<byte> data,
+        int firstMeshOffset,
+        uint meshCount,
+        out List<LithTechMesh>? meshes,
+        out string? errorMessage)
+    {
+        meshes = null;
+        errorMessage = null;
+
+        var parsedMeshes = new List<LithTechMesh>((int)Math.Min(meshCount, 64));
+        int position = firstMeshOffset;
+        int vertexLookupByteCount = GetLtbVertexLookupByteCount(data);
         for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
         {
             if (!TryReadLtbString(data, ref position, out string meshName))
@@ -205,128 +374,353 @@ internal static class LithTechModelDecoder
             }
 
             int meshBaseOffset = position;
-            if (!TryReadUInt16(data, meshBaseOffset + LtbMeshVertexCountOffset, out ushort vertexCount) ||
-                !TryReadUInt16(data, meshBaseOffset + LtbMeshFaceCountOffset, out ushort faceCount))
+            bool requireFollowingMesh = meshIndex + 1 < meshCount;
+            if (!TryReadLtbMesh(
+                    data,
+                    meshName,
+                    meshIndex,
+                    meshBaseOffset,
+                    vertexLookupByteCount,
+                    requireFollowingMesh,
+                    out LithTechMesh? mesh,
+                    out position,
+                    out errorMessage))
             {
-                errorMessage = $"LTB mesh '{meshName}' 头部不完整。";
                 return false;
             }
 
-            if (!TryGetLtbMeshLayout(data, meshBaseOffset, out LtbMeshLayout layout, out ushort meshType))
+            if (mesh is not null)
             {
-                errorMessage = $"LTB mesh '{meshName}' 使用了暂不支持的类型: {meshType}。";
-                return false;
-            }
-
-            if (!TryGetLtbVertexDataOffset(data, meshBaseOffset, out int vertexDataOffset))
-            {
-                errorMessage = $"LTB mesh '{meshName}' 顶点数据不完整。";
-                return false;
-            }
-
-            int indexCount = faceCount * 3;
-            long vertexByteCount = (long)vertexCount * layout.VertexStride;
-            long indexByteCount = (long)indexCount * sizeof(ushort);
-            if (vertexByteCount > int.MaxValue ||
-                indexByteCount > int.MaxValue ||
-                vertexDataOffset < 0 ||
-                vertexDataOffset + vertexByteCount + indexByteCount > data.Length)
-            {
-                errorMessage = $"LTB mesh '{meshName}' 几何数据越界。";
-                return false;
-            }
-
-            var vertices = new List<LithTechVector3>(vertexCount);
-            int readPosition = vertexDataOffset;
-            for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
-            {
-                if (!TryReadSingle(data, readPosition, out float x) ||
-                    !TryReadSingle(data, readPosition + 4, out float y) ||
-                    !TryReadSingle(data, readPosition + 8, out float z))
-                {
-                    errorMessage = $"LTB mesh '{meshName}' 顶点 #{vertexIndex + 1} 数据不完整。";
-                    return false;
-                }
-
-                vertices.Add(new LithTechVector3(x, y, z));
-                readPosition += 12;
-
-                if (layout.IncludeWeights)
-                {
-                    readPosition += 12;
-                }
-
-                readPosition += 12; // normal
-                readPosition += layout.PostNormalByteCount;
-                readPosition += 8; // texture coordinates
-            }
-
-            var triangleIndices = new List<int>(indexCount);
-            for (int index = 0; index < indexCount; index++)
-            {
-                if (!TryReadUInt16(data, readPosition, out ushort triangleIndex))
-                {
-                    errorMessage = $"LTB mesh '{meshName}' 索引数据不完整。";
-                    return false;
-                }
-
-                if (triangleIndex >= vertexCount)
-                {
-                    errorMessage = $"LTB mesh '{meshName}' 索引 {triangleIndex} 超出顶点范围。";
-                    return false;
-                }
-
-                triangleIndices.Add(triangleIndex);
-                readPosition += sizeof(ushort);
-            }
-
-            if (!TrySkipLtbMeshPostData(data, layout, ref readPosition))
-            {
-                errorMessage = $"LTB mesh '{meshName}' 后置数据不完整。";
-                return false;
-            }
-
-            position = readPosition;
-            if (vertices.Count > 0 && triangleIndices.Count >= 3)
-            {
-                string displayName = string.IsNullOrWhiteSpace(meshName) ? $"Mesh {meshIndex + 1}" : meshName;
-                meshes.Add(new LithTechMesh(displayName, vertices, triangleIndices));
+                parsedMeshes.Add(mesh);
             }
         }
 
-        if (meshes.Count == 0)
+        if (parsedMeshes.Count == 0)
         {
             errorMessage = "LTB 中没有可预览的 mesh 几何数据。";
             return false;
         }
 
-        document = new LithTechModelDocument(fallbackName, meshes, storageDescription, sourceByteCount, decodedByteCount);
+        meshes = parsedMeshes;
         return true;
     }
 
-    private static bool TryGetLtbMeshLayout(
+    private static bool TryReadLtbMesh(
+        ReadOnlySpan<byte> data,
+        string meshName,
+        int meshIndex,
+        int meshBaseOffset,
+        int vertexLookupByteCount,
+        bool requireFollowingMesh,
+        out LithTechMesh? mesh,
+        out int nextPosition,
+        out string? errorMessage)
+    {
+        mesh = null;
+        nextPosition = meshBaseOffset;
+        errorMessage = null;
+
+        if (!TryReadUInt16(data, meshBaseOffset + LtbMeshVertexCountOffset, out ushort vertexCount) ||
+            !TryReadUInt16(data, meshBaseOffset + LtbMeshFaceCountOffset, out ushort faceCount))
+        {
+            errorMessage = $"LTB mesh '{meshName}' 头部不完整。";
+            return false;
+        }
+
+        if (!TryFindLtbMeshLayout(
+                data,
+                meshBaseOffset,
+                vertexCount,
+                faceCount,
+                vertexLookupByteCount,
+                requireFollowingMesh,
+                out LtbMeshLayout layout,
+                out ushort meshType,
+                out int vertexDataOffset,
+                out int indexDataOffset,
+                out nextPosition,
+                out errorMessage))
+        {
+            errorMessage ??= $"LTB mesh '{meshName}' 使用了暂不支持的类型: {meshType}。";
+            return false;
+        }
+
+        int indexCount = faceCount * 3;
+        var vertices = new List<LithTechVector3>(vertexCount);
+        int readPosition = vertexDataOffset;
+        for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
+        {
+            if (!TryReadSingle(data, readPosition, out float x) ||
+                !TryReadSingle(data, readPosition + 4, out float y) ||
+                !TryReadSingle(data, readPosition + 8, out float z))
+            {
+                errorMessage = $"LTB mesh '{meshName}' 顶点 #{vertexIndex + 1} 数据不完整。";
+                return false;
+            }
+
+            vertices.Add(new LithTechVector3(x, y, z));
+            readPosition += layout.VertexStride;
+        }
+
+        var triangleIndices = new List<int>(indexCount);
+        readPosition = indexDataOffset;
+        for (int index = 0; index < indexCount; index++)
+        {
+            if (!TryReadUInt16(data, readPosition, out ushort triangleIndex))
+            {
+                errorMessage = $"LTB mesh '{meshName}' 索引数据不完整。";
+                return false;
+            }
+
+            if (triangleIndex >= vertexCount)
+            {
+                errorMessage = $"LTB mesh '{meshName}' 索引 {triangleIndex} 超出顶点范围。";
+                return false;
+            }
+
+            triangleIndices.Add(triangleIndex);
+            readPosition += sizeof(ushort);
+        }
+
+        if (vertices.Count > 0 && triangleIndices.Count >= 3)
+        {
+            string displayName = string.IsNullOrWhiteSpace(meshName) ? $"Mesh {meshIndex + 1}" : meshName;
+            mesh = new LithTechMesh(displayName, vertices, triangleIndices);
+        }
+
+        return true;
+    }
+
+    private static bool TryFindLtbMeshLayout(
         ReadOnlySpan<byte> data,
         int meshBaseOffset,
+        ushort vertexCount,
+        ushort faceCount,
+        int vertexLookupByteCount,
+        bool requireFollowingMesh,
         out LtbMeshLayout layout,
-        out ushort meshType)
+        out ushort meshType,
+        out int vertexDataOffset,
+        out int indexDataOffset,
+        out int nextPosition,
+        out string? errorMessage)
     {
         layout = default;
         meshType = 0;
+        vertexDataOffset = 0;
+        indexDataOffset = 0;
+        nextPosition = meshBaseOffset;
+        errorMessage = null;
 
-        if (!TryReadUInt16(data, meshBaseOffset + LtbMeshTypeHeadOffset, out ushort meshTypeHead))
+        Span<int> vertexDataOffsets = stackalloc int[96];
+        int vertexDataOffsetCount = GetLtbVertexDataOffsetCandidates(data, meshBaseOffset, vertexLookupByteCount, vertexDataOffsets);
+        if (vertexDataOffsetCount == 0)
         {
+            errorMessage = "LTB mesh 顶点数据不完整。";
             return false;
         }
 
+        Span<ushort> meshTypes = stackalloc ushort[8];
+        int meshTypeCount = GetLtbMeshTypeCandidates(data, meshBaseOffset, meshTypes);
+        if (meshTypeCount == 0)
+        {
+            errorMessage = "LTB mesh 类型数据不完整。";
+            return false;
+        }
+
+        int indexCount = faceCount * 3;
+        long indexByteCount = (long)indexCount * sizeof(ushort);
+        Span<int> candidateNextPositions = stackalloc int[4];
+        for (int offsetIndex = 0; offsetIndex < vertexDataOffsetCount; offsetIndex++)
+        {
+            int candidateVertexDataOffset = vertexDataOffsets[offsetIndex];
+            for (int i = 0; i < meshTypeCount; i++)
+            {
+                ushort candidateType = meshTypes[i];
+                if (!TryCreateLtbMeshLayout(candidateType, out LtbMeshLayout candidateLayout))
+                {
+                    continue;
+                }
+
+                long vertexByteCount = (long)vertexCount * candidateLayout.VertexStride;
+                if (vertexByteCount > int.MaxValue ||
+                    indexByteCount > int.MaxValue ||
+                    candidateVertexDataOffset < 0 ||
+                    candidateVertexDataOffset + vertexByteCount + indexByteCount > data.Length)
+                {
+                    errorMessage = "LTB mesh 几何数据越界。";
+                    continue;
+                }
+
+                int candidateIndexDataOffset = candidateVertexDataOffset + (int)vertexByteCount;
+                if (!AreLtbTriangleIndicesInRange(data, candidateIndexDataOffset, indexCount, vertexCount))
+                {
+                    errorMessage = "LTB mesh 索引超出顶点范围。";
+                    continue;
+                }
+
+                int postDataPosition = candidateIndexDataOffset + (int)indexByteCount;
+                int candidateNextPositionCount = GetLtbMeshPostDataEndCandidates(
+                    data,
+                    candidateLayout,
+                    postDataPosition,
+                    allowNoPostData: !requireFollowingMesh,
+                    scanForNextMesh: requireFollowingMesh,
+                    candidateNextPositions);
+                if (candidateNextPositionCount == 0)
+                {
+                    errorMessage = "LTB mesh 后置数据不完整。";
+                    continue;
+                }
+
+                for (int nextIndex = 0; nextIndex < candidateNextPositionCount; nextIndex++)
+                {
+                    int candidateNextPosition = candidateNextPositions[nextIndex];
+                    if (requireFollowingMesh && !LooksLikeLtbMeshAt(data, candidateNextPosition))
+                    {
+                        errorMessage = "LTB mesh 后置数据未能对齐到下一个 mesh。";
+                        continue;
+                    }
+
+                    layout = candidateLayout;
+                    meshType = candidateType;
+                    vertexDataOffset = candidateVertexDataOffset;
+                    indexDataOffset = candidateIndexDataOffset;
+                    nextPosition = candidateNextPosition;
+                    errorMessage = null;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetLtbVertexLookupByteCount(ReadOnlySpan<byte> data)
+    {
+        if (!TryReadUInt32(data, 32, out uint nodeCount) ||
+            nodeCount == 0 ||
+            nodeCount > 4096)
+        {
+            return 0;
+        }
+
+        return ((int)nodeCount + 1) * sizeof(uint);
+    }
+
+    private static int GetLtbVertexDataOffsetCandidates(ReadOnlySpan<byte> data, int meshBaseOffset, int vertexLookupByteCount, Span<int> offsets)
+    {
+        int count = 0;
+        if (TryGetLtbVertexDataOffset(data, meshBaseOffset, out int detectedOffset))
+        {
+            AddLtbVertexDataOffsetCandidate(offsets, ref count, detectedOffset, data.Length);
+        }
+
+        AddLtbVertexDataOffsetCandidate(offsets, ref count, meshBaseOffset + LtbFirstVertexOffset, data.Length);
+        AddLtbVertexDataOffsetCandidate(offsets, ref count, meshBaseOffset + LtbFirstVertexDoubleStartOffset, data.Length);
+        AddLtbVertexDataOffsetCandidate(offsets, ref count, meshBaseOffset + LtbFirstVertexDoubleStartOffset + sizeof(ushort), data.Length);
+        if (vertexLookupByteCount > 0)
+        {
+            AddLtbVertexDataOffsetCandidate(offsets, ref count, meshBaseOffset + LtbFirstVertexOffset + vertexLookupByteCount, data.Length);
+        }
+
+        int vertexLookupFlagOffset = meshBaseOffset + 65;
+        if (vertexLookupFlagOffset >= 0 &&
+            vertexLookupFlagOffset < data.Length &&
+            data[vertexLookupFlagOffset] != 0)
+        {
+            int scanStart = meshBaseOffset + LtbFirstVertexOffset;
+            int scanEnd = Math.Min(scanStart + 320, data.Length - sizeof(float) * 3);
+            for (int offset = scanStart; offset <= scanEnd; offset += sizeof(uint))
+            {
+                AddLtbVertexDataOffsetCandidate(offsets, ref count, offset, data.Length);
+            }
+        }
+
+        return count;
+    }
+
+    private static void AddLtbVertexDataOffsetCandidate(Span<int> offsets, ref int count, int offset, int dataLength)
+    {
+        if (offset < 0 || offset >= dataLength)
+        {
+            return;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            if (offsets[i] == offset)
+            {
+                return;
+            }
+        }
+
+        if (count < offsets.Length)
+        {
+            offsets[count++] = offset;
+        }
+    }
+
+    private static int GetLtbMeshTypeCandidates(ReadOnlySpan<byte> data, int meshBaseOffset, Span<ushort> meshTypes)
+    {
+        if (!TryReadUInt16(data, meshBaseOffset + LtbMeshTypeHeadOffset, out ushort meshTypeHead) ||
+            !TryReadUInt16(data, meshBaseOffset + LtbMeshTypeOffset, out ushort meshTypeOffset))
+        {
+            return 0;
+        }
+
+        int count = 0;
         if (meshTypeHead == LtbMeshTypeSkinnedAlt)
         {
-            meshType = LtbMeshTypeTwoExtraFloats;
+            AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeTwoExtraFloats);
         }
-        else if (!TryReadUInt16(data, meshBaseOffset + LtbMeshTypeOffset, out meshType))
+        else if (IsKnownLtbMeshType(meshTypeHead))
         {
-            return false;
+            AddLtbMeshTypeCandidate(meshTypes, ref count, meshTypeHead);
         }
 
+        if (IsKnownLtbMeshType(meshTypeOffset))
+        {
+            AddLtbMeshTypeCandidate(meshTypes, ref count, meshTypeOffset);
+        }
+
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeNotSkinned);
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeExtraFloat);
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeTwoExtraFloats);
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeSkinnedExtraFloat);
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeSkinned);
+        AddLtbMeshTypeCandidate(meshTypes, ref count, LtbMeshTypeSkinnedAlt);
+        return count;
+    }
+
+    private static void AddLtbMeshTypeCandidate(Span<ushort> meshTypes, ref int count, ushort meshType)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (meshTypes[i] == meshType)
+            {
+                return;
+            }
+        }
+
+        if (count < meshTypes.Length)
+        {
+            meshTypes[count++] = meshType;
+        }
+    }
+
+    private static bool IsKnownLtbMeshType(ushort meshType)
+    {
+        return meshType is LtbMeshTypeNotSkinned or
+               LtbMeshTypeExtraFloat or
+               LtbMeshTypeSkinnedAlt or
+               LtbMeshTypeSkinned or
+               LtbMeshTypeTwoExtraFloats or
+               LtbMeshTypeSkinnedExtraFloat;
+    }
+
+    private static bool TryCreateLtbMeshLayout(ushort meshType, out LtbMeshLayout layout)
+    {
         layout = meshType switch
         {
             LtbMeshTypeNotSkinned => new LtbMeshLayout(IncludeWeights: false, IncludePostData: false, PostNormalByteCount: 0),
@@ -334,14 +728,27 @@ internal static class LithTechModelDecoder
             LtbMeshTypeSkinned => new LtbMeshLayout(IncludeWeights: true, IncludePostData: true, PostNormalByteCount: 0),
             LtbMeshTypeSkinnedAlt => new LtbMeshLayout(IncludeWeights: true, IncludePostData: true, PostNormalByteCount: 0),
             LtbMeshTypeTwoExtraFloats => new LtbMeshLayout(IncludeWeights: false, IncludePostData: true, PostNormalByteCount: sizeof(float) * 2),
+            LtbMeshTypeSkinnedExtraFloat => new LtbMeshLayout(IncludeWeights: true, IncludePostData: true, PostNormalByteCount: sizeof(float)),
             _ => default
         };
 
-        return meshType is LtbMeshTypeNotSkinned or
-               LtbMeshTypeExtraFloat or
-               LtbMeshTypeSkinnedAlt or
-               LtbMeshTypeSkinned or
-               LtbMeshTypeTwoExtraFloats;
+        return IsKnownLtbMeshType(meshType);
+    }
+
+    private static bool AreLtbTriangleIndicesInRange(ReadOnlySpan<byte> data, int position, int indexCount, ushort vertexCount)
+    {
+        for (int index = 0; index < indexCount; index++)
+        {
+            if (!TryReadUInt16(data, position, out ushort triangleIndex) ||
+                triangleIndex >= vertexCount)
+            {
+                return false;
+            }
+
+            position += sizeof(ushort);
+        }
+
+        return true;
     }
 
     private static bool TryGetLtbVertexDataOffset(ReadOnlySpan<byte> data, int meshBaseOffset, out int vertexDataOffset)
@@ -362,34 +769,76 @@ internal static class LithTechModelDecoder
         return vertexDataOffset >= 0 && vertexDataOffset < data.Length;
     }
 
-    private static bool TrySkipLtbMeshPostData(ReadOnlySpan<byte> data, LtbMeshLayout layout, ref int position)
+    private static int GetLtbMeshPostDataEndCandidates(
+        ReadOnlySpan<byte> data,
+        LtbMeshLayout layout,
+        int position,
+        bool allowNoPostData,
+        bool scanForNextMesh,
+        Span<int> positions)
     {
+        int count = 0;
+        if (allowNoPostData)
+        {
+            AddLtbPostDataEndCandidate(positions, ref count, position, data.Length);
+        }
+
         if (!layout.IncludePostData)
         {
-            position += sizeof(ushort);
-            return position <= data.Length;
+            AddLtbPostDataEndCandidate(positions, ref count, position + sizeof(ushort), data.Length);
         }
 
-        if (!TryReadUInt32(data, position, out uint sectionCount))
+        if (TryReadUInt32(data, position, out uint sectionCount) &&
+            sectionCount <= 4096)
         {
-            return false;
+            long sectionEnd = (long)position + sizeof(uint) + (long)sectionCount * 12;
+            if (sectionEnd >= 0 && sectionEnd <= data.Length)
+            {
+                AddLtbPostDataEndCandidate(positions, ref count, (int)sectionEnd, data.Length);
+                AddLtbPostDataEndCandidate(positions, ref count, (int)sectionEnd + sizeof(uint), data.Length);
+
+                if (sectionEnd < data.Length)
+                {
+                    int finalSectionSize = data[(int)sectionEnd];
+                    AddLtbPostDataEndCandidate(positions, ref count, (int)sectionEnd + 1 + finalSectionSize, data.Length);
+                }
+            }
         }
 
-        long nextPosition = (long)position + sizeof(uint) + (long)sectionCount * 12;
-        if (nextPosition < 0 || nextPosition >= data.Length)
+        if (scanForNextMesh)
         {
-            return false;
+            int scanEnd = Math.Min(position + 128, data.Length - LtbFirstVertexOffset);
+            for (int candidatePosition = position; candidatePosition <= scanEnd; candidatePosition++)
+            {
+                if (LooksLikeLtbMeshHeaderAt(data, candidatePosition))
+                {
+                    AddLtbPostDataEndCandidate(positions, ref count, candidatePosition, data.Length);
+                }
+            }
         }
 
-        int finalSectionSize = data[(int)nextPosition];
-        nextPosition += 1L + finalSectionSize;
-        if (nextPosition > data.Length)
+        return count;
+    }
+
+    private static void AddLtbPostDataEndCandidate(Span<int> positions, ref int count, int position, int dataLength)
+    {
+        if (position < 0 || position > dataLength)
         {
-            return false;
+            return;
         }
 
-        position = (int)nextPosition;
-        return true;
+        for (int i = 0; i < count; i++)
+        {
+            if (positions[i] == position)
+            {
+                return;
+            }
+        }
+
+        if (count < positions.Length)
+        {
+            positions[count++] = position;
+        }
     }
 
     private static bool TryReadLtbString(ReadOnlySpan<byte> data, ref int position, out string value)
@@ -477,29 +926,46 @@ internal static class LithTechModelDecoder
         document = null;
         errorMessage = null;
 
-        if (!text.Contains("(lt-model", StringComparison.OrdinalIgnoreCase))
-        {
-            errorMessage = "模型数据不是可识别的 LTA 文本。";
-            return false;
-        }
-
         try
         {
             var parser = new LtaParser(text);
             LtaList root = parser.ParseRoot();
-            List<LithTechMesh> meshes = FindListsByHead(root, "mesh")
-                .Select(ParseMesh)
-                .Where(mesh => mesh is not null)
-                .Cast<LithTechMesh>()
-                .ToList();
+            string rootHead = GetAtomValue(root.Items.FirstOrDefault()) ?? string.Empty;
+            bool isWorld = string.Equals(rootHead, "world", StringComparison.OrdinalIgnoreCase);
+            bool isModel = string.Equals(rootHead, "lt-model", StringComparison.OrdinalIgnoreCase) ||
+                           text.Contains("(lt-model", StringComparison.OrdinalIgnoreCase);
 
-            if (meshes.Count == 0)
+            List<LithTechMesh> meshes;
+            string documentStorageDescription = storageDescription;
+            if (isWorld)
             {
+                meshes = ParseWorldMeshes(root);
+                documentStorageDescription = $"{storageDescription} world";
+            }
+            else if (isModel)
+            {
+                meshes = FindListsByHead(root, "mesh")
+                    .Select(ParseMesh)
+                    .Where(mesh => mesh is not null)
+                    .Cast<LithTechMesh>()
+                    .ToList();
+            }
+            else
+            {
+                errorMessage = "LTA text is not a recognized model or world document.";
                 return false;
             }
 
-            string name = GetAtomValue(root.Items.FirstOrDefault()) ?? fallbackName;
-            document = new LithTechModelDocument(name, meshes, storageDescription, sourceByteCount, decodedByteCount);
+            if (meshes.Count == 0)
+            {
+                errorMessage = isWorld
+                    ? "LTA world contains no previewable polyhedron geometry."
+                    : "LTA model contains no previewable mesh geometry.";
+                return false;
+            }
+
+            string name = isWorld ? fallbackName : GetAtomValue(root.Items.FirstOrDefault()) ?? fallbackName;
+            document = new LithTechModelDocument(name, meshes, documentStorageDescription, sourceByteCount, decodedByteCount);
             return true;
         }
         catch (Exception ex)
@@ -661,10 +1127,95 @@ internal static class LithTechModelDecoder
         return new LithTechMesh(name, vertices, triangleIndices);
     }
 
+    private static List<LithTechMesh> ParseWorldMeshes(LtaList root)
+    {
+        var meshes = new List<LithTechMesh>();
+        int polyhedronIndex = 1;
+        foreach (LtaList polyhedronNode in FindListsByHead(root, "polyhedron"))
+        {
+            LithTechMesh? mesh = ParseWorldPolyhedron(polyhedronNode, polyhedronIndex);
+            if (mesh is not null)
+            {
+                meshes.Add(mesh);
+            }
+
+            polyhedronIndex++;
+        }
+
+        return meshes;
+    }
+
+    private static LithTechMesh? ParseWorldPolyhedron(LtaList polyhedronNode, int polyhedronIndex)
+    {
+        LtaList? pointListNode = FindListsByHead(polyhedronNode, "pointlist").FirstOrDefault();
+        LtaList? polyListNode = FindListsByHead(polyhedronNode, "polylist").FirstOrDefault();
+        if (pointListNode is null || polyListNode is null)
+        {
+            return null;
+        }
+
+        List<LithTechVector3> vertices = ParseDirectVector3List(pointListNode);
+        if (vertices.Count == 0)
+        {
+            return null;
+        }
+
+        var triangleIndices = new List<int>();
+        foreach (LtaList editPolyNode in FindListsByHead(polyListNode, "editpoly"))
+        {
+            LtaList? faceNode = editPolyNode.Children.FirstOrDefault(child => IsHead(child, "f"));
+            if (faceNode is null)
+            {
+                continue;
+            }
+
+            List<int> faceIndices = ParseIntList(faceNode)
+                .Where(index => index >= 0 && index < vertices.Count)
+                .ToList();
+            if (faceIndices.Count < 3)
+            {
+                continue;
+            }
+
+            int firstIndex = faceIndices[0];
+            for (int index = 1; index + 1 < faceIndices.Count; index++)
+            {
+                triangleIndices.Add(firstIndex);
+                triangleIndices.Add(faceIndices[index]);
+                triangleIndices.Add(faceIndices[index + 1]);
+            }
+        }
+
+        return triangleIndices.Count >= 3
+            ? new LithTechMesh($"Polyhedron {polyhedronIndex}", vertices, triangleIndices)
+            : null;
+    }
+
     private static List<LithTechVector3> ParseVector3List(LtaList node)
     {
         var result = new List<LithTechVector3>();
         foreach (LtaList child in node.Children.SelectMany(GetChildren))
+        {
+            if (child.Items.Count < 3)
+            {
+                continue;
+            }
+
+            if (TryReadDouble(child.Items[0], out double x) &&
+                TryReadDouble(child.Items[1], out double y) &&
+                TryReadDouble(child.Items[2], out double z))
+            {
+                result.Add(new LithTechVector3(x, y, z));
+            }
+        }
+
+        return result;
+    }
+
+    private static List<LithTechVector3> ParseDirectVector3List(LtaList node)
+    {
+        var result = new List<LithTechVector3>();
+        foreach (LtaList child in node.Children)
         {
             if (child.Items.Count < 3)
             {
@@ -742,6 +1293,8 @@ internal static class LithTechModelDecoder
     {
         return list.Children;
     }
+
+    private readonly record struct LtbMeshTableCandidate(int MeshCountOffset, int FirstMeshOffset, uint MeshCount);
 
     private readonly record struct LtbMeshLayout(bool IncludeWeights, bool IncludePostData, int PostNormalByteCount)
     {

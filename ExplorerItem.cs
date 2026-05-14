@@ -43,6 +43,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
     private const int MaxModelPreviewBytes = 128 * 1024 * 1024;
     private const int MaxWorldDatPreviewBytes = 256 * 1024 * 1024;
     private const int MaxWorldDatThumbnailTriangles = 40_000;
+    private const int ThumbnailDecodeMaxSide = 192;
     private static readonly HashSet<string> ThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "png",
@@ -930,14 +931,42 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
         if (decodeThumbnail)
         {
-            image.DecodePixelWidth = 192;
-            image.DecodePixelHeight = 192;
+            SetThumbnailDecodeSize(image, data);
         }
 
         image.StreamSource = stream;
         image.EndInit();
         image.Freeze();
         return image;
+    }
+
+    private static void SetThumbnailDecodeSize(BitmapImage image, byte[] data)
+    {
+        (int width, int height) = ReadBitmapDimensions(data);
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        if (width >= height)
+        {
+            image.DecodePixelWidth = ThumbnailDecodeMaxSide;
+        }
+        else
+        {
+            image.DecodePixelHeight = ThumbnailDecodeMaxSide;
+        }
+    }
+
+    private static (int Width, int Height) ReadBitmapDimensions(byte[] data)
+    {
+        using var stream = new MemoryStream(data);
+        BitmapDecoder decoder = BitmapDecoder.Create(
+            stream,
+            BitmapCreateOptions.IgnoreColorProfile,
+            BitmapCacheOption.Default);
+        BitmapFrame frame = decoder.Frames[0];
+        return (frame.PixelWidth, frame.PixelHeight);
     }
 
     private static ImageStorageKind GetDtxStorageKind(byte[] data)

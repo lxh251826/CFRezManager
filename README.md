@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v0.8.0
+git tag v0.9.0
 git push origin main
-git push origin v0.8.0
+git push origin v0.9.0
 ```
 
 ## 浏览 REZ 资源包
@@ -50,12 +50,25 @@ git push origin v0.8.0
 ## 预览能力
 
 - PNG、JPG、BMP、GIF、TIFF、TGA、DTX 图片会懒加载缩略图。
-- DTX 和 TGA 支持普通纹理、CF 常见 LZMA 压缩纹理，以及部分缺失或错位 TGA 头的原始像素纹理。
-- DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被拉伸，过大时可以滚动查看。
+- DTX 和 TGA 支持普通纹理、CrossFire 常见 LZMA 压缩纹理，以及部分缺失或错位 TGA 头的原始像素纹理。
+- DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被强制拉伸，过大时可以滚动查看。
+- 图片预览窗口支持同目录/同列表内的上一张、下一张导航，可用按钮或左右方向键切换。
 - SPR 支持 LithTech 动态精灵解析和动画预览。程序会读取 SPR 中记录的帧率和 DTX 帧路径，从同一个 REZ 包或已解包目录中加载 DTX 帧并自动播放；找不到帧时会回退到帧路径文本预览。
 - LTC 支持缩略图和双击预览。内置解码器会处理普通 LTC、LZMA 压缩 LTC，以及 CrossFire 常见的 `54 83 B2 E1` 头和外层 XOR。解码后的 LTA 文本可以直接查看；如果内容是 LithTech 模型，会尝试渲染模型缩略图并打开独立模型预览窗口。
+- LTB 支持更多二进制 mesh 布局、mesh 表偏移和顶点布局变体，能直接预览更多 CrossFire 导出的模型。
+- LTA 支持 `lt-model` 模型文本，也支持 `world` 地图文本；`polyhedron` 的点表和面索引会被转换为可预览网格。
 - DAT 支持常见 CrossFire 地图和对象预览。LithTech world DAT v85 可以渲染地图模型缩略图并打开模型预览窗口；CrossFire 对象 DAT 会解码为文本预览，当前支持 `Zoneman`、`EnvSound`、`MovePath` 和 `CameraAnimation`。
 - LZMA 压缩资源会在缩略图角标显示 `LZMA`。
+
+## 模型预览操作
+
+- 鼠标左键点击模型窗口：进入自由视角。
+- 鼠标移动：调整视角方向。
+- `W` / `A` / `S` / `D`：前后左右移动。
+- `Shift`：加速移动。
+- 鼠标滚轮：沿当前视线方向前进或后退。
+- 鼠标右键或 `Esc`：退出自由视角。
+- `Reset View`：重置相机位置和方向。
 
 ## 鼠标快捷操作
 
@@ -99,12 +112,13 @@ git push origin v0.8.0
 - 重新打包时，文件扩展名需要为 1 到 4 个字符。
 - 从文件夹创建新 REZ 会保留内容和目录结构，但不会复刻原包的字节级布局、偏移、时间戳或整包 MD5。
 
-## v0.8.0 更新
+## v0.9.0 更新
 
-- 新增 LithTech SPR 解析，支持 LZMA 压缩和未压缩 SPR。
-- 新增 SPR 动态精灵动画预览，可按帧率播放 DTX 帧，并支持暂停和手动选帧。
-- SPR 找不到对应 DTX 时会回退到帧路径文本预览。
-- 修复并重写中文说明书，更新英文说明和 GitHub Release 文案。
+- 扩展 LTB 二进制模型解析，支持更多 mesh 表位置、顶点布局、后置数据和 mesh 类型变体。
+- 新增 LTA world/map 文本解析，可以把 `polyhedron`、`pointlist` 和 `editpoly/f` 面索引转换为地图网格预览。
+- 改进模型预览窗口，新增自由视角、WASD 移动、Shift 加速、滚轮移动和更稳定的视角重置。
+- 改进图片预览窗口，支持上一张/下一张导航，并优化缩略图解码尺寸以保留原始比例。
+- 修订中英文说明书和 GitHub Release 文案。
 
 ## 项目文件
 
@@ -112,12 +126,12 @@ git push origin v0.8.0
 - `RezArchiveReader.cs`：读取和解包 REZ。
 - `RezArchiveWriter.cs`：从文件夹打包生成新 REZ。
 - `RezCrypto.cs`：REZ 目录表解密和加密逻辑。
-- `ExplorerItem.cs`：程序内的文件夹和资源项模型。
+- `ExplorerItem.cs`：程序内的文件夹和资源项目模型。
 - `PreviewTool.cs`：独立预览工具入口。
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`：图片和纹理预览解码。
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`：SPR 动态精灵解析和动画帧加载。
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`：LTC 文本和模型预览解码。
-- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`：LithTech 模型解析和渲染。
+- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`：LithTech 模型、LTB/LTA world 解析和渲染。
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`：DAT 对象文本和 LithTech world 地图预览解码。
 - `TextThumbnailRenderer.cs`：文本类资源的缩略图渲染。
 - `VirtualizingWrapPanel.cs`：虚拟化图标网格布局。

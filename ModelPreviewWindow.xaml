@@ -38,8 +38,12 @@
         <Viewport3D x:Name="ModelViewport"
                     ClipToBounds="True"
                     Focusable="True"
+                    KeyDown="ModelViewport_KeyDown"
+                    KeyUp="ModelViewport_KeyUp"
+                    LostKeyboardFocus="ModelViewport_LostKeyboardFocus"
+                    LostMouseCapture="ModelViewport_LostMouseCapture"
                     MouseLeftButtonDown="ModelViewport_MouseLeftButtonDown"
-                    MouseLeftButtonUp="ModelViewport_MouseLeftButtonUp"
+                    MouseRightButtonDown="ModelViewport_MouseRightButtonDown"
                     MouseMove="ModelViewport_MouseMove"
                     MouseWheel="ModelViewport_MouseWheel"/>
     </DockPanel>
