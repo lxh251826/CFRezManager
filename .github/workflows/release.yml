@@ -53,5 +53,6 @@ jobs:
             - 支持中文 / English 语言切换，并记住语言、目录和显示大小
             - 支持鼠标前进后退、右键导出指定项、左键拖动框选
             - 支持列表 / 平铺大小切换、文件信息提示和快速搜索
-            - 支持 PNG、JPG、BMP、GIF、TIFF、DTX 缩略图
+            - 支持 PNG、JPG、BMP、GIF、TIFF、TGA、DTX 缩略图
+            - 改进 DTX / TGA 预览解码，支持 CF 常见 LZMA 压缩纹理和部分异常 TGA 头
             - 双击图片文件可按原始尺寸弹窗预览
