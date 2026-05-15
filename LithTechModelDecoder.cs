@@ -21,9 +21,16 @@ public sealed record LithTechModelDocument(
 public sealed record LithTechMesh(
     string Name,
     IReadOnlyList<LithTechVector3> Vertices,
-    IReadOnlyList<int> TriangleIndices);
+    IReadOnlyList<int> TriangleIndices,
+    IReadOnlyList<LithTechVector2>? TextureCoordinates = null,
+    string? TexturePath = null)
+{
+    public bool HasTextureCoordinates => TextureCoordinates is not null && TextureCoordinates.Count == Vertices.Count;
+}
 
 public readonly record struct LithTechVector3(double X, double Y, double Z);
+
+public readonly record struct LithTechVector2(double X, double Y);
 
 internal static class LithTechModelDecoder
 {
@@ -49,6 +56,24 @@ internal static class LithTechModelDecoder
     private const ushort LtbMeshTypeSkinned = 4;
     private const ushort LtbMeshTypeTwoExtraFloats = 5;
     private const ushort LtbMeshTypeSkinnedExtraFloat = 6;
+    private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp"];
+    private static readonly string[] LtaTextureCoordinateHeads =
+    [
+        "uv",
+        "uvs",
+        "uv-fs",
+        "uvs-fs",
+        "tvert",
+        "tverts",
+        "texvert",
+        "texverts",
+        "texcoord",
+        "texcoords",
+        "texturecoord",
+        "texturecoords",
+        "texture-coordinate",
+        "texture-coordinates"
+    ];
 
     static LithTechModelDecoder()
     {
@@ -365,6 +390,7 @@ internal static class LithTechModelDecoder
         var parsedMeshes = new List<LithTechMesh>((int)Math.Min(meshCount, 64));
         int position = firstMeshOffset;
         int vertexLookupByteCount = GetLtbVertexLookupByteCount(data);
+        List<string> texturePaths = ExtractEmbeddedTexturePaths(data);
         for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
         {
             if (!TryReadLtbString(data, ref position, out string meshName))
@@ -382,6 +408,7 @@ internal static class LithTechModelDecoder
                     meshBaseOffset,
                     vertexLookupByteCount,
                     requireFollowingMesh,
+                    texturePaths,
                     out LithTechMesh? mesh,
                     out position,
                     out errorMessage))
@@ -412,6 +439,7 @@ internal static class LithTechModelDecoder
         int meshBaseOffset,
         int vertexLookupByteCount,
         bool requireFollowingMesh,
+        IReadOnlyList<string> texturePaths,
         out LithTechMesh? mesh,
         out int nextPosition,
         out string? errorMessage)
@@ -447,6 +475,7 @@ internal static class LithTechModelDecoder
 
         int indexCount = faceCount * 3;
         var vertices = new List<LithTechVector3>(vertexCount);
+        var textureCoordinates = new List<LithTechVector2>(vertexCount);
         int readPosition = vertexDataOffset;
         for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
         {
@@ -459,6 +488,12 @@ internal static class LithTechModelDecoder
             }
 
             vertices.Add(new LithTechVector3(x, y, z));
+            if (TryReadSingle(data, readPosition + layout.TextureCoordinateOffset, out float u) &&
+                TryReadSingle(data, readPosition + layout.TextureCoordinateOffset + sizeof(float), out float v))
+            {
+                textureCoordinates.Add(new LithTechVector2(u, v));
+            }
+
             readPosition += layout.VertexStride;
         }
 
@@ -485,7 +520,12 @@ internal static class LithTechModelDecoder
         if (vertices.Count > 0 && triangleIndices.Count >= 3)
         {
             string displayName = string.IsNullOrWhiteSpace(meshName) ? $"Mesh {meshIndex + 1}" : meshName;
-            mesh = new LithTechMesh(displayName, vertices, triangleIndices);
+            mesh = new LithTechMesh(
+                displayName,
+                vertices,
+                triangleIndices,
+                textureCoordinates.Count == vertices.Count ? textureCoordinates : null,
+                ResolveTexturePath(texturePaths, displayName, meshIndex));
         }
 
         return true;
@@ -1112,6 +1152,8 @@ internal static class LithTechModelDecoder
         List<int> triangleIndices = ParseIntList(triNode)
             .Where(index => index >= 0 && index < vertices.Count)
             .ToList();
+        List<LithTechVector2>? textureCoordinates = ParseTextureCoordinates(meshNode, vertices.Count);
+        string? texturePath = FindTexturePath(meshNode);
 
         int usableIndexCount = triangleIndices.Count - triangleIndices.Count % 3;
         if (vertices.Count == 0 || usableIndexCount < 3)
@@ -1124,7 +1166,7 @@ internal static class LithTechModelDecoder
             triangleIndices.RemoveRange(usableIndexCount, triangleIndices.Count - usableIndexCount);
         }
 
-        return new LithTechMesh(name, vertices, triangleIndices);
+        return new LithTechMesh(name, vertices, triangleIndices, textureCoordinates, texturePath);
     }
 
     private static List<LithTechMesh> ParseWorldMeshes(LtaList root)
@@ -1212,6 +1254,51 @@ internal static class LithTechModelDecoder
         return result;
     }
 
+    private static List<LithTechVector2>? ParseTextureCoordinates(LtaList meshNode, int vertexCount)
+    {
+        if (vertexCount <= 0)
+        {
+            return null;
+        }
+
+        foreach (LtaList coordinateNode in FindListsByHeads(meshNode, LtaTextureCoordinateHeads))
+        {
+            List<LithTechVector2> coordinates = ParseVector2List(coordinateNode);
+            if (coordinates.Count == vertexCount)
+            {
+                return coordinates;
+            }
+        }
+
+        return null;
+    }
+
+    private static List<LithTechVector2> ParseVector2List(LtaList node)
+    {
+        var result = new List<LithTechVector2>();
+        CollectVector2(node, result);
+        return result;
+    }
+
+    private static void CollectVector2(LtaList node, List<LithTechVector2> result)
+    {
+        int startIndex = node.Items.FirstOrDefault() is LtaAtom firstAtom &&
+                         double.TryParse(firstAtom.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+            ? 0
+            : 1;
+        if (node.Items.Count - startIndex >= 2 &&
+            TryReadDouble(node.Items[startIndex], out double x) &&
+            TryReadDouble(node.Items[startIndex + 1], out double y))
+        {
+            result.Add(new LithTechVector2(x, y));
+        }
+
+        foreach (LtaList child in node.Children)
+        {
+            CollectVector2(child, result);
+        }
+    }
+
     private static List<LithTechVector3> ParseDirectVector3List(LtaList node)
     {
         var result = new List<LithTechVector3>();
@@ -1238,6 +1325,61 @@ internal static class LithTechModelDecoder
         var values = new List<int>();
         CollectInts(node.Items.Skip(1), values);
         return values;
+    }
+
+    private static string? FindTexturePath(LtaList node)
+    {
+        var paths = new List<string>();
+        CollectTexturePaths(node, paths);
+        return paths.Count > 0 ? paths[0] : null;
+    }
+
+    private static void CollectTexturePaths(LtaList node, List<string> paths)
+    {
+        string head = GetAtomValue(node.Items.FirstOrDefault()) ?? string.Empty;
+        bool isTextureContext = IsTextureContextHead(head);
+        foreach (LtaAtom atom in node.Items.OfType<LtaAtom>())
+        {
+            AddTexturePathsFromText(atom.Value, paths);
+            if (isTextureContext && LooksLikeTextureReference(atom.Value))
+            {
+                string path = NormalizeTexturePath(atom.Value);
+                if (!paths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    paths.Add(path);
+                }
+            }
+        }
+
+        foreach (LtaList child in node.Children)
+        {
+            CollectTexturePaths(child, paths);
+        }
+    }
+
+    private static bool IsTextureContextHead(string value)
+    {
+        return value.Contains("texture", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("material", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("shader", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeTextureReference(string value)
+    {
+        string normalized = NormalizeTexturePath(value);
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return false;
+        }
+
+        if (normalized.Contains('/') || normalized.Contains('\\'))
+        {
+            return true;
+        }
+
+        string extension = Path.GetExtension(normalized);
+        return TextureExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
     private static void CollectInts(IEnumerable<object> items, List<int> values)
@@ -1279,6 +1421,23 @@ internal static class LithTechModelDecoder
         }
     }
 
+    private static IEnumerable<LtaList> FindListsByHeads(LtaList node, IReadOnlyCollection<string> heads)
+    {
+        string nodeHead = GetAtomValue(node.Items.FirstOrDefault()) ?? string.Empty;
+        if (heads.Contains(nodeHead, StringComparer.OrdinalIgnoreCase))
+        {
+            yield return node;
+        }
+
+        foreach (LtaList child in node.Children)
+        {
+            foreach (LtaList match in FindListsByHeads(child, heads))
+            {
+                yield return match;
+            }
+        }
+    }
+
     private static bool IsHead(LtaList list, string value)
     {
         return string.Equals(GetAtomValue(list.Items.FirstOrDefault()), value, StringComparison.OrdinalIgnoreCase);
@@ -1294,6 +1453,112 @@ internal static class LithTechModelDecoder
         return list.Children;
     }
 
+    private static List<string> ExtractEmbeddedTexturePaths(ReadOnlySpan<byte> data)
+    {
+        var paths = new List<string>();
+        var builder = new StringBuilder();
+        for (int i = 0; i < data.Length; i++)
+        {
+            byte value = data[i];
+            if (value is >= 0x20 and <= 0x7E)
+            {
+                builder.Append((char)value);
+                if (builder.Length < 4096)
+                {
+                    continue;
+                }
+            }
+
+            AddTexturePathsFromText(builder.ToString(), paths);
+            builder.Clear();
+        }
+
+        if (builder.Length > 0)
+        {
+            AddTexturePathsFromText(builder.ToString(), paths);
+        }
+
+        return paths;
+    }
+
+    private static void AddTexturePathsFromText(string text, List<string> paths)
+    {
+        foreach (string extension in TextureExtensions)
+        {
+            int searchStart = 0;
+            while (searchStart < text.Length)
+            {
+                int extensionIndex = text.IndexOf(extension, searchStart, StringComparison.OrdinalIgnoreCase);
+                if (extensionIndex < 0)
+                {
+                    break;
+                }
+
+                int start = extensionIndex;
+                while (start > 0 && IsTexturePathCharacter(text[start - 1]))
+                {
+                    start--;
+                }
+
+                int end = extensionIndex + extension.Length;
+                string path = NormalizeTexturePath(text[start..end]);
+                if (!string.IsNullOrWhiteSpace(path) && !paths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    paths.Add(path);
+                }
+
+                searchStart = end;
+            }
+        }
+    }
+
+    private static bool IsTexturePathCharacter(char value)
+    {
+        return char.IsLetterOrDigit(value) ||
+               value is '_' or '-' or '.' or '/' or '\\' or ' ';
+    }
+
+    private static string NormalizeTexturePath(string path)
+    {
+        return path
+            .Trim()
+            .Trim('"', '\'')
+            .Replace('\\', '/')
+            .TrimStart('/');
+    }
+
+    private static string? ResolveTexturePath(IReadOnlyList<string> texturePaths, string meshName, int meshIndex)
+    {
+        if (texturePaths.Count == 0)
+        {
+            return null;
+        }
+
+        string comparableMeshName = Path.GetFileNameWithoutExtension(meshName);
+        if (!string.IsNullOrWhiteSpace(comparableMeshName))
+        {
+            foreach (string texturePath in texturePaths)
+            {
+                string textureName = Path.GetFileNameWithoutExtension(texturePath);
+                if (!string.IsNullOrWhiteSpace(textureName) &&
+                    (textureName.Contains(comparableMeshName, StringComparison.OrdinalIgnoreCase) ||
+                     comparableMeshName.Contains(textureName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return texturePath;
+                }
+            }
+        }
+
+        if (texturePaths.Count == 1)
+        {
+            return texturePaths[0];
+        }
+
+        return meshIndex >= 0 && meshIndex < texturePaths.Count
+            ? texturePaths[meshIndex]
+            : null;
+    }
+
     private readonly record struct LtbMeshTableCandidate(int MeshCountOffset, int FirstMeshOffset, uint MeshCount);
 
     private readonly record struct LtbMeshLayout(bool IncludeWeights, bool IncludePostData, int PostNormalByteCount)
@@ -1303,6 +1568,8 @@ internal static class LithTechModelDecoder
                                    12 +
                                    PostNormalByteCount +
                                    8;
+
+        public int TextureCoordinateOffset => VertexStride - 8;
     }
 
     private sealed class LtaParser

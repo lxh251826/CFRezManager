@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,8 +11,19 @@ namespace CFRezManager;
 
 public partial class AudioPreviewWindow : Window
 {
+    private sealed record AudioPreviewTrackItem(string Number, string Title);
+
+    private enum AudioRepeatMode
+    {
+        Directory,
+        Single,
+        StopAtEnd
+    }
+
     private const string PlayIconData = "M 3 1 L 18 10 L 3 19 Z";
     private const string PauseIconData = "M 4 1 L 8 1 L 8 19 L 4 19 Z M 12 1 L 16 1 L 16 19 L 12 19 Z";
+    private const string RepeatDirectoryIconData = "M 5 4 L 16 4 L 19 7 M 19 7 L 16 10 M 19 7 L 5 7 M 19 15 L 8 15 L 5 12 M 5 12 L 8 9 M 5 12 L 19 12";
+    private const string RepeatStopAtEndIconData = "M 6 4 L 15 11 L 6 18 Z M 19 4 L 19 18";
     private const long SpectrumPeakHoldMilliseconds = 420;
     private const double SpectrumPeakInitialFallRowsPerSecond = 1.6;
     private const double SpectrumPeakGravityRowsPerSecondSquared = 32.0;
@@ -30,6 +42,8 @@ public partial class AudioPreviewWindow : Window
 
     private readonly DispatcherTimer _positionTimer;
     private readonly Func<int, Task<AudioPreviewDocument?>>? _loadDocumentAsync;
+    private readonly IReadOnlyList<AudioPreviewTrackItem> _trackItems = [];
+    private UserSettings _settings = new();
     private AudioPreviewDocument? _document;
     private float[] _waveformPeaks = [];
     private AudioSpectrumData? _spectrumData;
@@ -54,19 +68,28 @@ public partial class AudioPreviewWindow : Window
     private int _documentIndex;
     private int _documentCount = 1;
     private int _waveformRequestVersion;
+    private AudioRepeatMode _repeatMode = AudioRepeatMode.Directory;
     private bool _isDocumentLoading;
     private bool _isDraggingPosition;
     private bool _isUpdatingPosition;
+    private bool _isUpdatingTrackSelection;
     private bool _isPlaying;
     private bool _isSpectrumSettling;
+    private bool _arePreferenceUpdatesEnabled;
     private TimeSpan _spectrumSettlePosition = TimeSpan.Zero;
 
-    public AudioPreviewWindow(string fileName, string audioPath, string? audioInfo = null, string? temporaryAudioPath = null)
+    public AudioPreviewWindow(
+        string fileName,
+        string audioPath,
+        string? audioInfo = null,
+        string? temporaryAudioPath = null,
+        UserSettings? settings = null)
         : this(new AudioPreviewDocument(
             fileName,
             audioPath,
             audioInfo,
-            string.IsNullOrWhiteSpace(temporaryAudioPath) ? [] : [temporaryAudioPath]))
+            string.IsNullOrWhiteSpace(temporaryAudioPath) ? [] : [temporaryAudioPath]),
+            settings: settings)
     {
     }
 
@@ -74,13 +97,24 @@ public partial class AudioPreviewWindow : Window
         AudioPreviewDocument document,
         Func<int, Task<AudioPreviewDocument?>>? loadDocumentAsync = null,
         int documentIndex = 0,
-        int documentCount = 1)
+        int documentCount = 1,
+        UserSettings? settings = null,
+        IReadOnlyList<string>? documentNames = null)
     {
         InitializeComponent();
+
+        _settings = settings ?? UserSettings.Load();
+        _repeatMode = ParseAudioRepeatMode(_settings.AudioPreviewRepeatMode);
+        VolumeSlider.Value = NormalizeVolume(_settings.AudioPreviewVolume);
+        _arePreferenceUpdatesEnabled = true;
 
         _loadDocumentAsync = loadDocumentAsync;
         _documentCount = Math.Max(1, documentCount);
         _documentIndex = Math.Clamp(documentIndex, 0, _documentCount - 1);
+        _trackItems = BuildTrackItems(documentNames, _documentCount);
+        TrackListBox.ItemsSource = _trackItems;
+        UpdateTrackListVisibility();
+        UpdateRepeatModeButton();
 
         _positionTimer = new DispatcherTimer
         {
@@ -139,6 +173,33 @@ public partial class AudioPreviewWindow : Window
         await NavigateDocumentAsync(1);
     }
 
+    private async void TrackListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingTrackSelection ||
+            TrackListBox.SelectedIndex < 0 ||
+            TrackListBox.SelectedIndex == _documentIndex)
+        {
+            return;
+        }
+
+        if (!await NavigateDocumentIndexAsync(TrackListBox.SelectedIndex))
+        {
+            UpdateSelectedTrackListItem();
+        }
+    }
+
+    private void RepeatModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _repeatMode = _repeatMode switch
+        {
+            AudioRepeatMode.Directory => AudioRepeatMode.Single,
+            AudioRepeatMode.Single => AudioRepeatMode.StopAtEnd,
+            _ => AudioRepeatMode.Directory
+        };
+        UpdateRepeatModeButton();
+        SaveAudioPreferences();
+    }
+
     private void PlayButton_Click(object sender, RoutedEventArgs e)
     {
         if (_isPlaying)
@@ -164,7 +225,12 @@ public partial class AudioPreviewWindow : Window
     {
         if (AudioPlayer is not null)
         {
-            AudioPlayer.Volume = VolumeSlider.Value;
+            AudioPlayer.Volume = NormalizeVolume(VolumeSlider.Value);
+        }
+
+        if (_arePreferenceUpdatesEnabled)
+        {
+            SaveAudioPreferences();
         }
     }
 
@@ -197,7 +263,29 @@ public partial class AudioPreviewWindow : Window
         UpdateTimeText(AudioPlayer.Position);
     }
 
-    private void AudioPlayer_MediaEnded(object sender, RoutedEventArgs e)
+    private async void AudioPlayer_MediaEnded(object sender, RoutedEventArgs e)
+    {
+        if (_repeatMode == AudioRepeatMode.StopAtEnd)
+        {
+            SetPlaybackEndedState();
+            return;
+        }
+
+        if (_repeatMode == AudioRepeatMode.Single)
+        {
+            RestartCurrentDocument();
+            return;
+        }
+
+        if (await TryAdvanceDirectoryLoopAsync())
+        {
+            return;
+        }
+
+        RestartCurrentDocument();
+    }
+
+    private void SetPlaybackEndedState()
     {
         _spectrumSettlePosition = _duration > TimeSpan.Zero ? _duration : AudioPlayer.Position;
         AudioPlayer.Stop();
@@ -272,17 +360,21 @@ public partial class AudioPreviewWindow : Window
         base.OnClosed(e);
     }
 
-    private async Task NavigateDocumentAsync(int delta)
+    private Task<bool> NavigateDocumentAsync(int delta)
+    {
+        return NavigateDocumentIndexAsync(_documentIndex + delta);
+    }
+
+    private async Task<bool> NavigateDocumentIndexAsync(int targetIndex)
     {
         if (!HasDocumentNavigation || _loadDocumentAsync is null || _isDocumentLoading)
         {
-            return;
+            return false;
         }
 
-        int targetIndex = _documentIndex + delta;
         if (targetIndex < 0 || targetIndex >= _documentCount)
         {
-            return;
+            return false;
         }
 
         _isDocumentLoading = true;
@@ -292,11 +384,12 @@ public partial class AudioPreviewWindow : Window
             AudioPreviewDocument? document = await _loadDocumentAsync(targetIndex);
             if (document is null)
             {
-                return;
+                return false;
             }
 
             _documentIndex = targetIndex;
             SetDocument(document, deletePrevious: true, startPlayback: true);
+            return true;
         }
         finally
         {
@@ -325,7 +418,7 @@ public partial class AudioPreviewWindow : Window
         NowPlayingText.Text = document.AudioName;
         FormatBadgeText.Text = document.FormatLabel;
         AudioPlayer.Source = new Uri(document.AudioPath, UriKind.Absolute);
-        AudioPlayer.Volume = VolumeSlider.Value;
+        AudioPlayer.Volume = NormalizeVolume(VolumeSlider.Value);
 
         string? documentInfo = HasDocumentNavigation ? $"{_documentIndex + 1:N0} / {_documentCount:N0}" : null;
         PreviewInfoText.Text = CombineInfo(documentInfo, document.AudioInfo) ?? string.Empty;
@@ -336,6 +429,7 @@ public partial class AudioPreviewWindow : Window
             : $"{document.AudioName} - Audio Preview";
 
         UpdateNavigationState();
+        UpdateSelectedTrackListItem();
         QueueWaveformRender(document, ++_waveformRequestVersion);
         if (startPlayback)
         {
@@ -375,6 +469,34 @@ public partial class AudioPreviewWindow : Window
         UpdateWaveformPlaybackVisual(position);
     }
 
+    private async Task<bool> TryAdvanceDirectoryLoopAsync()
+    {
+        if (!HasDocumentNavigation || _documentCount <= 1)
+        {
+            return false;
+        }
+
+        int targetIndex = _documentIndex + 1;
+        if (targetIndex >= _documentCount)
+        {
+            targetIndex = 0;
+        }
+
+        return await NavigateDocumentIndexAsync(targetIndex);
+    }
+
+    private void RestartCurrentDocument()
+    {
+        _isSpectrumSettling = false;
+        AudioPlayer.Stop();
+        AudioPlayer.Position = TimeSpan.Zero;
+        SetPosition(TimeSpan.Zero);
+        AudioPlayer.Play();
+        _isPlaying = true;
+        UpdatePlayButtonIcon();
+        _positionTimer.Start();
+    }
+
     private void SetPosition(TimeSpan position, bool updateSpectrum = true)
     {
         _isUpdatingPosition = true;
@@ -397,6 +519,94 @@ public partial class AudioPreviewWindow : Window
     }
 
     private bool HasDocumentNavigation => _loadDocumentAsync is not null && _documentCount > 1;
+
+    private static IReadOnlyList<AudioPreviewTrackItem> BuildTrackItems(IReadOnlyList<string>? documentNames, int documentCount)
+    {
+        var items = new List<AudioPreviewTrackItem>(Math.Max(1, documentCount));
+        for (int index = 0; index < documentCount; index++)
+        {
+            string title = documentNames is not null &&
+                           index < documentNames.Count &&
+                           !string.IsNullOrWhiteSpace(documentNames[index])
+                ? documentNames[index]
+                : $"Track {index + 1:N0}";
+            items.Add(new AudioPreviewTrackItem(
+                (index + 1).ToString("N0", CultureInfo.CurrentCulture),
+                title));
+        }
+
+        return items;
+    }
+
+    private void UpdateTrackListVisibility()
+    {
+        bool showTrackList = HasDocumentNavigation && _trackItems.Count > 1;
+        TrackListPanel.Visibility = showTrackList ? Visibility.Visible : Visibility.Collapsed;
+        TrackListColumn.Width = showTrackList ? new GridLength(272) : new GridLength(0);
+        TrackCountText.Text = showTrackList ? _documentCount.ToString("N0", CultureInfo.CurrentCulture) : string.Empty;
+        if (showTrackList)
+        {
+            MinWidth = Math.Max(MinWidth, 940);
+            MinHeight = Math.Max(MinHeight, 330);
+            Width = Math.Max(Width, 980);
+            Height = Math.Max(Height, 420);
+        }
+    }
+
+    private void UpdateSelectedTrackListItem()
+    {
+        if (!HasDocumentNavigation || _trackItems.Count == 0)
+        {
+            return;
+        }
+
+        _isUpdatingTrackSelection = true;
+        try
+        {
+            TrackListBox.SelectedIndex = Math.Clamp(_documentIndex, 0, _trackItems.Count - 1);
+            if (TrackListBox.SelectedItem is not null)
+            {
+                TrackListBox.ScrollIntoView(TrackListBox.SelectedItem);
+            }
+        }
+        finally
+        {
+            _isUpdatingTrackSelection = false;
+        }
+    }
+
+    private void UpdateRepeatModeButton()
+    {
+        RepeatOneBadge.Visibility = _repeatMode == AudioRepeatMode.Single ? Visibility.Visible : Visibility.Collapsed;
+        RepeatModeIcon.Data = Geometry.Parse(_repeatMode == AudioRepeatMode.StopAtEnd
+            ? RepeatStopAtEndIconData
+            : RepeatDirectoryIconData);
+        RepeatModeButton.ToolTip = _repeatMode switch
+        {
+            AudioRepeatMode.Single => "\u5355\u66f2\u5faa\u73af",
+            AudioRepeatMode.StopAtEnd => "\u64ad\u653e\u5b8c\u6210\u505c\u6b62",
+            _ => "\u76ee\u5f55\u5faa\u73af"
+        };
+    }
+
+    private void SaveAudioPreferences()
+    {
+        _settings.AudioPreviewVolume = NormalizeVolume(VolumeSlider.Value);
+        _settings.AudioPreviewRepeatMode = _repeatMode.ToString();
+        _settings.Save();
+    }
+
+    private static AudioRepeatMode ParseAudioRepeatMode(string? value)
+    {
+        return Enum.TryParse(value, ignoreCase: true, out AudioRepeatMode mode)
+            ? mode
+            : AudioRepeatMode.Directory;
+    }
+
+    private static double NormalizeVolume(double value)
+    {
+        return double.IsFinite(value) ? Math.Clamp(value, 0, 1) : 0.8;
+    }
 
     private void UpdateNavigationState()
     {

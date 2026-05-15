@@ -420,6 +420,9 @@
                                 <MenuItem x:Name="OpenPreviewMenuItem"
                                           Header="打开预览..."
                                           Click="OpenPreviewMenuItem_Click"/>
+                                <MenuItem x:Name="DecodeBankMenuItem"
+                                          Header="Decode BANK..."
+                                          Click="DecodeBankMenuItem_Click"/>
                                 <Separator x:Name="PreviewMenuSeparator"/>
                                 <MenuItem x:Name="ExtractSelectedMenuItem"
                                           Header="导出选中项..."

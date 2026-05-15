@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v1.0.0
+git tag v1.1.0
 git push origin main
-git push origin v1.0.0
+git push origin v1.1.0
 ```
 
 ## Browse REZ Archives
@@ -56,8 +56,9 @@ Use the bottom-right `Size` slider to switch views: smaller values use a list vi
 - DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
 - The image preview window supports previous/next navigation across the current image list, using either the toolbar buttons or the left/right arrow keys.
 - WAV, OGG, and MP3 audio files support waveform thumbnails and double-click audio preview.
-- Audio preview supports previous/next navigation across the current audio list, playback controls, seeking, volume adjustment, and a PotPlayer-style spectrum display rendered with a lightweight bitmap buffer.
+- Audio preview supports a track list for quick switching, previous/next navigation across the current audio list, playback controls, seeking, volume adjustment, and a PotPlayer-style spectrum display rendered with a lightweight bitmap buffer.
 - OGG files are decoded through the built-in Vorbis path before playback so files that WPF cannot open directly can still preview.
+- FMOD `.bank` files support LZMA wrapper decoding, RIFF/FEV metadata previews, embedded FSB5 block listing, audio thumbnails, player preview through the built-in Fmod5Sharp path with `vgmstream-cli.exe` fallback, a track list for switching internal streams, and a right-click `Decode BANK...` export that writes the decoded bank plus raw FSB5 blocks.
 - Audio and resource thumbnails show storage/decode badges such as `RAW`, `LZMA`, `DXT`, and `TXT`.
 - SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
 - LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
@@ -119,6 +120,15 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
 
+## v1.1.0 Changes
+
+- Added FMOD `.bank` support: common LZMA wrappers can be decoded, RIFF/FEV metadata and embedded FSB5 blocks are listed, and `Decode BANK...` exports the decoded bank plus raw FSB5 files.
+- BANK audio preview now uses the built-in Fmod5Sharp path first for common Vorbis, PCM, and FADPCM FSB5 streams, with `vgmstream-cli.exe` kept as a fallback for unsupported codecs.
+- BANK files with playable streams now show audio-style thumbnails and open in the audio player; the player includes a right-side track list for quickly switching across large multi-stream banks.
+- The audio player now has a track list, remembers volume/repeat mode, and fixes the list white-flash and bottom control bar layout issues.
+- Model preview gained texture path, UV coordinate, and local/REZ texture resolution support, so textured LTB/LTA/world models can render closer to the original assets.
+- Updated Chinese and English documentation plus GitHub Release notes, and bumped the application version to `v1.1.0`.
+
 ## v1.0.0 Official Release
 
 - Shipped the first official `v1.0.0` release, stabilizing the current REZ browsing, search, extraction, repacking, and multi-format preview feature set.
@@ -166,11 +176,12 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `AudioMetadataDecoder.cs` / `AudioThumbnailRenderer.cs`: Audio metadata and waveform thumbnail rendering.
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`: Standalone audio preview window and spectrum renderer.
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`: Audio spectrum analysis and OGG-to-WAV playback conversion.
+- `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`: FMOD BANK decode, export, and embedded FSB5 audio preview.
 - `ResourceTextDecoder.cs`: Decodes additional text-like CrossFire resource formats.
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
-- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`: LithTech model, LTB/LTA world parsing, and rendering.
+- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`: LithTech model, LTB/LTA world parsing, texture lookup, and rendering.
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.

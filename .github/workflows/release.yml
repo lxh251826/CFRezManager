@@ -61,7 +61,16 @@ jobs:
             - 预览 DDS DXT 块压缩纹理和常见未压缩 DDS 纹理。
             - 解析 LithTech SPR 动态精灵，并从 REZ 包或本地解包目录加载 DTX 帧自动播放动画。
             - 预览更多 LTB 二进制模型和 LTA world/map 文本资源。
+            - 预览和导出 FMOD `.bank`，支持内嵌 FSB5 音频播放、缩略图和曲目清单。
             - 支持中文和英文界面切换，并记住语言、目录和视图大小。
+
+            ### v1.1.0 更新
+
+            - 新增 FMOD `.bank` 支持：可解开常见 LZMA 外壳，预览 RIFF/FEV 元数据和内嵌 FSB5 块，并通过右键 `解码 BANK...` 导出 decoded bank 与原始 FSB5 文件。
+            - `.bank` 内含音频时会优先走内置 Fmod5Sharp 解码路径，支持 Vorbis、PCM、FADPCM 等常见 FSB5 流；不支持的流再尝试 `vgmstream-cli.exe` 兜底。
+            - `.bank` 音频缩略图复用普通音频波形样式，双击可打开播放器，并在播放器右侧显示曲目清单，方便在几百条内部音频流之间快速切换。
+            - 音频播放器增加曲目列表、保存音量和循环模式，并修正列表切换时的白底闪烁和控制栏不贴底问题。
+            - 模型预览增加纹理路径、UV 坐标和本地/REZ 内贴图解析能力，带贴图的 LTB/LTA/world 模型可以显示更接近原始资源的外观。
 
             ### v1.0.0 正式版
 
@@ -84,7 +93,16 @@ jobs:
             - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
             - Parse LithTech SPR sprites and preview animations by loading referenced DTX frames from REZ archives or local extracted folders.
             - Preview more LTB binary models and LTA world/map text files.
+            - Preview and export FMOD `.bank` files with embedded FSB5 audio playback, thumbnails, and a track list.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
+
+            ### v1.1.0 Changes
+
+            - Added FMOD `.bank` support: common LZMA wrappers can be decoded, RIFF/FEV metadata and embedded FSB5 blocks are listed, and `Decode BANK...` exports the decoded bank plus raw FSB5 files.
+            - BANK audio preview now uses the built-in Fmod5Sharp path first for common Vorbis, PCM, and FADPCM FSB5 streams, with `vgmstream-cli.exe` kept as a fallback for unsupported codecs.
+            - BANK files with playable streams now show audio-style thumbnails and open in the audio player; the player includes a right-side track list for quickly switching across large multi-stream banks.
+            - The audio player now has a track list, remembers volume/repeat mode, and fixes the list white-flash and bottom control bar layout issues.
+            - Model preview gained texture path, UV coordinate, and local/REZ texture resolution support, so textured LTB/LTA/world models can render closer to the original assets.
 
             ### v1.0.0 Official Release
 

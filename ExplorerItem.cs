@@ -41,7 +41,9 @@ public enum ImageStorageKind
     RasterUncompressed,
     RasterLzmaCompressed,
     LithTechModel,
-    LithTechModelLzma
+    LithTechModelLzma,
+    FmodBank,
+    FmodBankLzma
 }
 
 public sealed class ExplorerItem : INotifyPropertyChanged
@@ -132,7 +134,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.DtxLzmaCompressed or
         ImageStorageKind.TgaLzmaCompressed or
         ImageStorageKind.RasterLzmaCompressed or
-        ImageStorageKind.LithTechModelLzma => "LZMA",
+        ImageStorageKind.LithTechModelLzma or
+        ImageStorageKind.FmodBankLzma => "LZMA",
         ImageStorageKind.DdsBlockCompressed => "DXT",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
         ImageStorageKind.DtxUncompressed or
@@ -151,6 +154,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.AudioLzmaCompressed => "LZMA",
         ImageStorageKind.ResourceText => "TXT",
         ImageStorageKind.ResourceTextLzma => "LZMA",
+        ImageStorageKind.FmodBank => "BANK",
         _ => null
     };
 
@@ -159,7 +163,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.DtxLzmaCompressed or
         ImageStorageKind.TgaLzmaCompressed or
         ImageStorageKind.RasterLzmaCompressed or
-        ImageStorageKind.LithTechModelLzma => "LZ",
+        ImageStorageKind.LithTechModelLzma or
+        ImageStorageKind.FmodBankLzma => "LZ",
         ImageStorageKind.DdsBlockCompressed => "DX",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
         ImageStorageKind.DtxUncompressed or
@@ -178,6 +183,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.AudioLzmaCompressed => "LZ",
         ImageStorageKind.ResourceText => "TX",
         ImageStorageKind.ResourceTextLzma => "LZ",
+        ImageStorageKind.FmodBank => "BK",
         _ => null
     };
 
@@ -252,14 +258,16 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or
                     ImageStorageKind.TgaLzmaCompressed or
                     ImageStorageKind.RasterLzmaCompressed or
-                    ImageStorageKind.LithTechModelLzma)
+                    ImageStorageKind.LithTechModelLzma or
+                    ImageStorageKind.FmodBankLzma)
                 {
                     lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: LZMA compressed");
                 }
                 else if (_imageStorageKind is ImageStorageKind.DtxUncompressed or
                          ImageStorageKind.TgaUncompressed or
                          ImageStorageKind.RasterUncompressed or
-                         ImageStorageKind.LithTechModel)
+                         ImageStorageKind.LithTechModel or
+                         ImageStorageKind.FmodBank)
                 {
                     lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: uncompressed");
                 }
@@ -481,7 +489,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 LithTechModelDecoder.IsCandidate(extension) ||
                 LithTechWorldDatDecoder.IsCandidate(extension) ||
                 CrossFireDatDecoder.IsCandidate(extension) ||
-                LithTechSpriteDecoder.IsCandidate(extension));
+                LithTechSpriteDecoder.IsCandidate(extension) ||
+                FmodBankDecoder.IsCandidate(extension));
     }
 
     private bool CanLoadImagePreview()
@@ -497,6 +506,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 CrossFireLtcDecoder.IsCandidate(extension) ||
                 CrossFireDatDecoder.IsCandidate(extension) ||
                 LithTechSpriteDecoder.IsCandidate(extension) ||
+                FmodBankDecoder.IsCandidate(extension) ||
                 ResourceTextDecoder.IsCandidate(Name, extension) ||
                 TextPreviewDecoder.IsPlainTextExtension(extension));
     }
@@ -522,10 +532,12 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
                 ? MaxWorldDatPreviewBytes
                 : LithTechModelDecoder.IsCandidate(extension)
-                    ? MaxModelPreviewBytes
-                    : CrossFireDatDecoder.IsCandidate(extension)
                         ? MaxModelPreviewBytes
-                        : MaxThumbnailBytes;
+                        : CrossFireDatDecoder.IsCandidate(extension)
+                            ? MaxModelPreviewBytes
+                            : FmodBankDecoder.IsCandidate(extension)
+                                ? FmodBankDecoder.MaxThumbnailSourceBytes
+                                : MaxThumbnailBytes;
             byte[]? data = ReadFileBytes(maxBytes);
             if (data is null)
             {
@@ -548,6 +560,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             if (LithTechSpriteDecoder.IsCandidate(extension))
             {
                 return LoadLithTechSpriteThumbnail(data);
+            }
+
+            if (FmodBankDecoder.IsCandidate(extension))
+            {
+                return LoadFmodBankThumbnail(data);
             }
 
             if (AudioExtensions.Contains(extension))
@@ -693,6 +710,37 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         string badge = string.Equals(extension, "txt", StringComparison.OrdinalIgnoreCase)
             ? "TXT"
             : extension.ToUpperInvariant();
+        return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
+    }
+
+    private ImageSource? LoadFmodBankThumbnail(byte[] data)
+    {
+        SetImageStorageKind(FmodBankDecoder.IsCompressedBank(data)
+            ? ImageStorageKind.FmodBankLzma
+            : ImageStorageKind.FmodBank);
+
+        if (FmodBankAudioPreviewDocumentFactory.TryCreateThumbnailAudioData(
+                Name,
+                data,
+                out byte[]? audioData,
+                out string? audioTitle,
+                out _) &&
+            audioData is not null)
+        {
+            ImageSource? audioThumbnail = AudioThumbnailRenderer.TryRender(audioTitle ?? Name, audioData);
+            if (audioThumbnail is not null)
+            {
+                return audioThumbnail;
+            }
+        }
+
+        if (!FmodBankDecoder.TryDecode(data, Name, out FmodBankDocument? document, out _) ||
+            document is null)
+        {
+            return null;
+        }
+
+        string badge = document.FsbBlockCount > 0 ? "FSB" : "BANK";
         return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
     }
 
@@ -865,7 +913,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         try
         {
             string extension = FileExtension;
-            byte[]? data = ReadFileBytes(MaxTextPreviewBytes);
+            int maxBytes = FmodBankDecoder.IsCandidate(extension)
+                ? FmodBankDecoder.MaxSourceBytes
+                : MaxTextPreviewBytes;
+            byte[]? data = ReadFileBytes(maxBytes);
             if (data is null || string.IsNullOrWhiteSpace(extension))
             {
                 return null;
@@ -933,6 +984,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     TextPreviewStorageKind.LithTechSprite,
                     sprDocument.SourceByteCount,
                     sprDocument.DecodedByteCount);
+            }
+
+            if (FmodBankDecoder.IsCandidate(extension))
+            {
+                if (!FmodBankDecoder.TryDecode(data, Name, out FmodBankDocument? bankDocument, out _) ||
+                    bankDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    bankDocument.Text,
+                    bankDocument.StorageDescription,
+                    TextPreviewStorageKind.FmodBank,
+                    bankDocument.SourceByteCount,
+                    bankDocument.DecodedByteCount);
             }
 
             if (ResourceTextDecoder.IsCandidate(Name, extension))
@@ -1255,6 +1322,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",
             ImageStorageKind.AudioUncompressed or ImageStorageKind.AudioLzmaCompressed => "Audio",
             ImageStorageKind.ResourceText or ImageStorageKind.ResourceTextLzma => "Resource",
+            ImageStorageKind.FmodBank or ImageStorageKind.FmodBankLzma => "BANK",
             _ => "Image"
         };
     }

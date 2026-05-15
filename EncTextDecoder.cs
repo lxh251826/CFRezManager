@@ -9,7 +9,8 @@ public enum TextPreviewStorageKind
     LtcConverted,
     CrossFireDat,
     LithTechSprite,
-    ResourceDecoded
+    ResourceDecoded,
+    FmodBank
 }
 
 public sealed record TextPreviewDocument(

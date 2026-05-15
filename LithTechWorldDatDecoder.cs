@@ -125,26 +125,36 @@ internal static class LithTechWorldDatDecoder
 
         uint sectionCount = reader.ReadUInt32();
         ValidateCount(sectionCount, MaxNodeCount, "section");
+        var sections = new List<DatRenderSection>((int)Math.Min(sectionCount, 1024));
         for (int i = 0; i < sectionCount; i++)
         {
-            SkipSection(reader);
+            sections.Add(ReadSection(reader));
         }
 
         uint vertexCount = reader.ReadUInt32();
         ValidateCount(vertexCount, MaxVertexCountPerNode, "vertex");
         var vertices = new List<LithTechVector3>((int)Math.Min(vertexCount, 65536));
+        var textureCoordinates = new List<LithTechVector2>((int)Math.Min(vertexCount, 65536));
         for (int i = 0; i < vertexCount; i++)
         {
             float x = reader.ReadSingle();
             float y = reader.ReadSingle();
             float z = reader.ReadSingle();
+            float u = reader.ReadSingle();
+            float v = reader.ReadSingle();
             vertices.Add(new LithTechVector3(x, y, z));
-            reader.Skip(VertexByteCount - 12);
+            textureCoordinates.Add(new LithTechVector2(u, v));
+            reader.Skip(VertexByteCount - 20);
         }
 
         uint triangleCount = reader.ReadUInt32();
         ValidateCount(triangleCount, MaxTriangleCountPerNode, "triangle");
         var triangleIndices = new List<int>(checked((int)Math.Min(triangleCount, 65536) * 3));
+        var sectionTriangleIndices = sections.Count == 0
+            ? null
+            : sections.Select(_ => new List<int>()).ToList();
+        int sectionIndex = 0;
+        uint remainingSectionTriangles = sections.Count > 0 ? sections[0].TriangleCount : 0;
         for (int i = 0; i < triangleCount; i++)
         {
             uint a = reader.ReadUInt32();
@@ -152,11 +162,25 @@ internal static class LithTechWorldDatDecoder
             uint c = reader.ReadUInt32();
             reader.Skip(sizeof(uint)); // polyIndex
 
+            while (sections.Count > 0 && sectionIndex + 1 < sections.Count && remainingSectionTriangles == 0)
+            {
+                sectionIndex++;
+                remainingSectionTriangles = sections[sectionIndex].TriangleCount;
+            }
+
             if (a < vertexCount && b < vertexCount && c < vertexCount)
             {
-                triangleIndices.Add((int)a);
-                triangleIndices.Add((int)b);
-                triangleIndices.Add((int)c);
+                List<int> targetIndices = sectionTriangleIndices is null
+                    ? triangleIndices
+                    : sectionTriangleIndices[sectionIndex];
+                targetIndices.Add((int)a);
+                targetIndices.Add((int)b);
+                targetIndices.Add((int)c);
+            }
+
+            if (sections.Count > 0 && remainingSectionTriangles > 0)
+            {
+                remainingSectionTriangles--;
             }
         }
 
@@ -187,19 +211,41 @@ internal static class LithTechWorldDatDecoder
 
         if (vertices.Count > 0 && triangleIndices.Count >= 3)
         {
-            meshes.Add(new LithTechMesh(meshName, vertices, triangleIndices));
+            meshes.Add(new LithTechMesh(meshName, vertices, triangleIndices, textureCoordinates));
+        }
+
+        if (vertices.Count > 0 && sectionTriangleIndices is not null)
+        {
+            for (int i = 0; i < sections.Count; i++)
+            {
+                List<int> indices = sectionTriangleIndices[i];
+                if (indices.Count < 3)
+                {
+                    continue;
+                }
+
+                DatRenderSection section = sections[i];
+                string sectionName = string.IsNullOrWhiteSpace(section.TexturePath)
+                    ? $"{meshName} / Section {i + 1}"
+                    : $"{meshName} / {Path.GetFileNameWithoutExtension(section.TexturePath)}";
+                meshes.Add(new LithTechMesh(sectionName, vertices, indices, textureCoordinates, section.TexturePath));
+            }
         }
     }
 
-    private static void SkipSection(DatReader reader)
+    private static DatRenderSection ReadSection(DatReader reader)
     {
-        reader.ReadString();
-        reader.ReadString();
-        reader.Skip(1 + sizeof(uint)); // shaderCode + triangleCount
-        reader.ReadString();
+        string textureName0 = reader.ReadString();
+        string textureName1 = reader.ReadString();
+        reader.Skip(1); // shaderCode
+        uint triangleCount = reader.ReadUInt32();
+        string textureEffect = reader.ReadString();
         reader.Skip(sizeof(uint) * 2); // lightMapWidth + lightMapHeight
         uint lightMapSize = reader.ReadUInt32();
         reader.Skip(checked((int)lightMapSize));
+
+        string? texturePath = SelectSectionTexture(textureName0, textureName1, textureEffect);
+        return new DatRenderSection(texturePath, triangleCount);
     }
 
     private static void SkipVerticesPos(DatReader reader)
@@ -259,6 +305,31 @@ internal static class LithTechWorldDatDecoder
             throw new InvalidDataException($"DAT {label} count is too large: {count}.");
         }
     }
+
+    private static string? SelectSectionTexture(params string[] textureNames)
+    {
+        foreach (string textureName in textureNames)
+        {
+            string normalized = NormalizeTextureName(textureName);
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                return normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private static string NormalizeTextureName(string textureName)
+    {
+        return textureName
+            .Trim()
+            .Trim('"', '\'')
+            .Replace('\\', '/')
+            .TrimStart('/');
+    }
+
+    private readonly record struct DatRenderSection(string? TexturePath, uint TriangleCount);
 
     private sealed class DatReader
     {

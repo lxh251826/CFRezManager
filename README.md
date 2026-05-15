@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v1.0.0
+git tag v1.1.0
 git push origin main
-git push origin v1.0.0
+git push origin v1.1.0
 ```
 
 ## 浏览 REZ 资源包
@@ -56,8 +56,9 @@ git push origin v1.0.0
 - DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被强制拉伸，过大时可以滚动查看。
 - 图片预览窗口支持同目录/同列表内的上一张、下一张导航，可用按钮或左右方向键切换。
 - WAV、OGG、MP3 音频支持元数据解析、波形缩略图和双击预览。
-- 音频预览窗口支持上一首/下一首、播放/暂停/停止、进度拖动、音量调节，以及接近 PotPlayer 风格的动态频谱。
+- 音频预览窗口支持曲目清单快速切换、上一首/下一首、播放/暂停/停止、进度拖动、音量调节，以及接近 PotPlayer 风格的动态频谱。
 - OGG 会通过内置 Vorbis 解码路径转换为临时 WAV 后播放，避免 WPF 直接播放失败。
+- FMOD `.bank` 支持 LZMA 外壳解码、RIFF/FEV 元数据预览、内嵌 FSB5 音频块列表、内置 Fmod5Sharp 播放预览、音频缩略图、播放器曲目清单，以及右键 `解码 BANK...` 导出 decoded bank 和原始 FSB5 块；少数内置解码不支持的流可回退到 `vgmstream-cli.exe`。
 - 音频和资源缩略图会在角标显示 `RAW`、`LZMA`、`DXT`、`TXT` 等存储/解码状态。
 - SPR 支持 LithTech 动态精灵解析和动画预览。程序会读取 SPR 中记录的帧率和 DTX 帧路径，从同一个 REZ 包或已解包目录中加载 DTX 帧并自动播放；找不到帧时会回退到帧路径文本预览。
 - LTC 支持缩略图和双击预览。内置解码器会处理普通 LTC、LZMA 压缩 LTC，以及 CrossFire 常见的 `54 83 B2 E1` 头和外层 XOR。解码后的 LTA 文本可以直接查看；如果内容是 LithTech 模型，会尝试渲染模型缩略图并打开独立模型预览窗口。
@@ -119,6 +120,15 @@ git push origin v1.0.0
 - 重新打包时，文件扩展名需要为 1 到 4 个字符。
 - 从文件夹创建新 REZ 会保留内容和目录结构，但不会复制原包的字节级布局、偏移、时间戳或整包 MD5。
 
+## v1.1.0 更新
+
+- 新增 FMOD `.bank` 支持：可解开常见 LZMA 外壳，预览 RIFF/FEV 元数据和内嵌 FSB5 块，并通过右键 `解码 BANK...` 导出 decoded bank 与原始 FSB5 文件。
+- `.bank` 内含音频时会优先走内置 Fmod5Sharp 解码路径，支持 Vorbis、PCM、FADPCM 等常见 FSB5 流；不支持的流再尝试 `vgmstream-cli.exe` 兜底。
+- `.bank` 音频缩略图复用普通音频波形样式，双击可打开播放器，并在播放器右侧显示曲目清单，方便在几百条内部音频流之间快速切换。
+- 音频播放器增加曲目列表、保存音量和循环模式，并修正列表切换时的白底闪烁和控制栏不贴底问题。
+- 模型预览增加纹理路径、UV 坐标和本地/REZ 内贴图解析能力，带贴图的 LTB/LTA/world 模型可以显示更接近原始资源的外观。
+- 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.0`。
+
 ## v1.0.0 正式版更新
 
 - 发布首个正式版 `v1.0.0`，将当前 REZ 浏览、搜索、解包、重新打包和多格式预览能力整理为稳定版本。
@@ -166,11 +176,12 @@ git push origin v1.0.0
 - `AudioMetadataDecoder.cs` / `AudioThumbnailRenderer.cs`：音频元数据和波形缩略图渲染。
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`：独立音频预览窗口和频谱绘制。
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`：音频频谱分析和 OGG 转 WAV 播放转换。
+- `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`：FMOD BANK 解码、导出和内嵌 FSB5 音频预览。
 - `ResourceTextDecoder.cs`：更多文本类 CrossFire 资源解码。
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`：图片和纹理预览解码。
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`：SPR 动态精灵解析和动画帧加载。
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`：LTC 文本和模型预览解码。
-- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs`：LithTech 模型、LTB/LTA world 解析和渲染。
+- `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`：LithTech 模型、LTB/LTA world 解析、贴图查找和渲染。
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`：DAT 对象文本和 LithTech world 地图预览解码。
 - `TextThumbnailRenderer.cs`：文本类资源的缩略图渲染。
 - `VirtualizingWrapPanel.cs`：虚拟化图标网格布局。

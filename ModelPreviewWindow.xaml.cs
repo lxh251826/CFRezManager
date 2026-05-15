@@ -29,7 +29,11 @@ public partial class ModelPreviewWindow : Window
     private bool _isRenderingSubscribed;
     private bool _isFreeLookActive;
 
-    public ModelPreviewWindow(string fileName, LithTechModelDocument document, string? modelInfo = null)
+    public ModelPreviewWindow(
+        string fileName,
+        LithTechModelDocument document,
+        string? modelInfo = null,
+        Func<string, ImageSource?>? textureResolver = null)
     {
         InitializeComponent();
 
@@ -38,7 +42,7 @@ public partial class ModelPreviewWindow : Window
         MaxHeight = Math.Max(MinHeight, workArea.Height - 80);
 
         ModelViewport.Camera = _camera;
-        BuildScene(document);
+        BuildScene(document, textureResolver);
 
         ResetCameraState();
         UpdateCamera();
@@ -47,9 +51,9 @@ public partial class ModelPreviewWindow : Window
         Title = $"{fileName} - {document.Name}";
     }
 
-    private void BuildScene(LithTechModelDocument document)
+    private void BuildScene(LithTechModelDocument document, Func<string, ImageSource?>? textureResolver)
     {
-        ModelViewport.Children.Add(new ModelVisual3D { Content = LithTechModelSceneBuilder.CreateScene(document) });
+        ModelViewport.Children.Add(new ModelVisual3D { Content = LithTechModelSceneBuilder.CreateScene(document, textureResolver) });
     }
 
     private void UpdateCamera()

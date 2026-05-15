@@ -17,6 +17,8 @@ public sealed class UserSettings
     public string LastOutputDirectory { get; set; } = string.Empty;
     public string LastSaveDirectory { get; set; } = string.Empty;
     public double ViewSize { get; set; } = 72;
+    public double AudioPreviewVolume { get; set; } = 0.8;
+    public string AudioPreviewRepeatMode { get; set; } = "Directory";
 
     public static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

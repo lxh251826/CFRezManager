@@ -5,6 +5,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Forms = System.Windows.Forms;
@@ -196,10 +197,14 @@ public partial class MainWindow : Window
             ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
             ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
             ["OpenPreview"] = ("打开预览...", "Open Preview..."),
+            ["DecodeBank"] = ("\u89e3\u7801 BANK...", "Decode BANK..."),
             ["OpenAudioPreview"] = ("播放音频...", "Play Audio..."),
             ["OpenImagePreview"] = ("查看图片...", "View Image..."),
             ["OpenModelPreview"] = ("查看模型...", "View Model..."),
             ["OpenTextPreview"] = ("查看文本...", "View Text..."),
+            ["DecodingBank"] = ("\u6b63\u5728\u89e3\u7801 BANK {0}...", "Decoding BANK {0}..."),
+            ["DecodedBankResult"] = ("\u5df2\u8f93\u51fa BANK: {0:N0} \u4e2a FSB \u5230 {1}", "Decoded BANK: {0:N0} FSB blocks to {1}"),
+            ["DecodeBankFailed"] = ("\u89e3\u7801 BANK \u5931\u8d25", "BANK decode failed"),
             ["LoadingModelPreview"] = ("正在打开模型 {0}...", "Opening model {0}..."),
             ["ModelPreviewOpened"] = ("已打开模型 {0}", "Opened model {0}"),
             ["ModelPreviewUnsupported"] = ("无法解码模型 {0}", "Cannot decode model {0}"),
@@ -325,6 +330,17 @@ public partial class MainWindow : Window
         await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label), preserveOutputRelativePaths: false);
     }
 
+    private async void DecodeBankMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        if (selectedItems.Count != 1 || !FmodBankDecoder.IsCandidate(selectedItems[0].FileExtension))
+        {
+            return;
+        }
+
+        await DecodeBankAsync(selectedItems[0]);
+    }
+
     private async void OpenPreviewMenuItem_Click(object sender, RoutedEventArgs e)
     {
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
@@ -334,7 +350,11 @@ public partial class MainWindow : Window
         }
 
         ExplorerItem item = selectedItems[0];
-        if (IsSpritePreviewCandidate(item))
+        if (IsBankAudioPreviewCandidate(item))
+        {
+            await ShowBankAudioPreviewAsync(item);
+        }
+        else if (IsSpritePreviewCandidate(item))
         {
             await ShowSpritePreviewAsync(item);
         }
@@ -416,6 +436,39 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task DecodeBankAsync(ExplorerItem item)
+    {
+        string? outputDirectory = SelectFolder(T("SelectOutputFolderDescription"), FolderDialogKind.Output, _selectedDirectory);
+        if (outputDirectory is null)
+        {
+            return;
+        }
+
+        SetBusy(true, keepSearchEnabled: true);
+
+        try
+        {
+            WorkProgress.IsIndeterminate = true;
+            SetStatus("DecodingBank", item.Name);
+
+            FmodBankExportResult result = await Task.Run(() =>
+            {
+                byte[] data = ReadExplorerFileBytes(item, FmodBankDecoder.MaxSourceBytes);
+                return FmodBankDecoder.ExportDecodedFiles(data, item.Name, outputDirectory);
+            });
+
+            SetStatus("DecodedBankResult", result.FsbBlockPaths.Count, outputDirectory);
+        }
+        catch (Exception ex)
+        {
+            ShowError("DecodeBankFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
+    }
+
     private async void ContentsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is not ExplorerItem item)
@@ -426,6 +479,10 @@ public partial class MainWindow : Window
         if (item.IsContainer)
         {
             await ShowFolderAsync(item);
+        }
+        else if (IsBankAudioPreviewCandidate(item))
+        {
+            await ShowBankAudioPreviewAsync(item);
         }
         else if (IsSpritePreviewCandidate(item))
         {
@@ -451,7 +508,38 @@ public partial class MainWindow : Window
 
     private async Task ShowModelPreviewAsync(ExplorerItem item)
     {
-        await ShowPreviewToolAsync(item);
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingModelPreview", item.Name);
+
+        try
+        {
+            LithTechModelDocument? document = await item.LoadModelPreviewAsync();
+            if (document is null)
+            {
+                SetStatus("ModelPreviewUnsupported", item.Name);
+                return;
+            }
+
+            var window = new ModelPreviewWindow(
+                item.Name,
+                document,
+                FormatModelInfo(document),
+                LithTechModelTextureLoader.CreateResolver(item))
+            {
+                Owner = this,
+                ShowInTaskbar = true
+            };
+            window.Show();
+            SetStatus("ModelPreviewOpened", item.Name);
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
     }
 
     private async Task ShowTextPreviewAsync(ExplorerItem item)
@@ -492,12 +580,13 @@ public partial class MainWindow : Window
                 document,
                 audioItems.Count > 1 ? LoadDocumentAtAsync : null,
                 audioIndex,
-                audioItems.Count)
+                audioItems.Count,
+                _settings,
+                audioItems.Select(audioItem => audioItem.Name).ToList())
             {
-                Owner = this,
                 ShowInTaskbar = true
             };
-            window.Show();
+            ShowIndependentAudioPreviewWindow(window);
             SetStatus("PreviewOpened", item.Name);
         }
         catch (Exception ex)
@@ -518,6 +607,81 @@ public partial class MainWindow : Window
             .ToList();
     }
 
+    private async Task ShowBankAudioPreviewAsync(ExplorerItem item)
+    {
+        SetBusy(true, keepSearchEnabled: true);
+        SetStatus("LoadingPreview", item.Name);
+        bool openTextFallback = false;
+
+        try
+        {
+            FmodBankAudioSource? source = await Task.Run(() =>
+            {
+                byte[] data = ReadExplorerFileBytes(item, FmodBankDecoder.MaxSourceBytes);
+                return FmodBankAudioPreviewDocumentFactory.TryCreateSource(
+                    item.Name,
+                    data,
+                    out FmodBankAudioSource? bankSource,
+                    out _)
+                    ? bankSource
+                    : null;
+            });
+
+            if (source is null || source.StreamCount == 0)
+            {
+                openTextFallback = true;
+            }
+            else
+            {
+                AudioPreviewDocument? document = await Task.Run(() =>
+                    FmodBankAudioPreviewDocumentFactory.TryCreate(source, 0, out AudioPreviewDocument? firstDocument, out _)
+                        ? firstDocument
+                        : null);
+                if (document is null)
+                {
+                    openTextFallback = true;
+                }
+                else
+                {
+                    Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
+                    {
+                        return index >= 0 && index < source.StreamCount
+                            ? Task.Run(() => FmodBankAudioPreviewDocumentFactory.TryCreate(source, index, out AudioPreviewDocument? nextDocument, out _)
+                                ? nextDocument
+                                : null)
+                            : Task.FromResult<AudioPreviewDocument?>(null);
+                    }
+
+                    var window = new AudioPreviewWindow(
+                        document,
+                        source.StreamCount > 1 ? LoadDocumentAtAsync : null,
+                        0,
+                        source.StreamCount,
+                        _settings,
+                        source.GetStreamNames())
+                    {
+                        ShowInTaskbar = true
+                    };
+                    ShowIndependentAudioPreviewWindow(window);
+                    SetStatus("PreviewOpened", item.Name);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("PreviewFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
+
+        if (openTextFallback)
+        {
+            await ShowTextPreviewAsync(item);
+        }
+    }
+
     private static Task<AudioPreviewDocument?> LoadAudioPreviewDocumentAsync(ExplorerItem item)
     {
         return Task.Run(() =>
@@ -531,6 +695,103 @@ public partial class MainWindow : Window
                 out AudioPreviewDocument? document,
                 out _) ? document : null;
         });
+    }
+
+    private void ShowIndependentAudioPreviewWindow(AudioPreviewWindow window)
+    {
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        CenterWindowOverMainWindow(window);
+        window.Show();
+    }
+
+    private void CenterWindowOverMainWindow(Window window)
+    {
+        double windowWidth = GetWindowDimension(window.Width, window.ActualWidth, window.MinWidth);
+        double windowHeight = GetWindowDimension(window.Height, window.ActualHeight, window.MinHeight);
+        Rect mainBounds = GetMainWindowBounds();
+        Rect workArea = GetCurrentScreenWorkArea();
+
+        window.Left = mainBounds.Left + Math.Max(0, (mainBounds.Width - windowWidth) / 2);
+        window.Top = mainBounds.Top + Math.Max(0, (mainBounds.Height - windowHeight) / 2);
+
+        if (windowWidth <= workArea.Width)
+        {
+            window.Left = Math.Min(Math.Max(window.Left, workArea.Left), workArea.Right - windowWidth);
+        }
+        else
+        {
+            window.Left = workArea.Left;
+        }
+
+        if (windowHeight <= workArea.Height)
+        {
+            window.Top = Math.Min(Math.Max(window.Top, workArea.Top), workArea.Bottom - windowHeight);
+        }
+        else
+        {
+            window.Top = workArea.Top;
+        }
+    }
+
+    private Rect GetMainWindowBounds()
+    {
+        if (WindowState == WindowState.Maximized)
+        {
+            return GetCurrentScreenWorkArea();
+        }
+
+        if (WindowState == WindowState.Minimized)
+        {
+            return RestoreBounds;
+        }
+
+        double width = GetWindowDimension(Width, ActualWidth, MinWidth);
+        double height = GetWindowDimension(Height, ActualHeight, MinHeight);
+        return new Rect(Left, Top, width, height);
+    }
+
+    private Rect GetCurrentScreenWorkArea()
+    {
+        IntPtr handle = new WindowInteropHelper(this).Handle;
+        Forms.Screen? screen = handle != IntPtr.Zero
+            ? Forms.Screen.FromHandle(handle)
+            : Forms.Screen.PrimaryScreen;
+        if (screen is null)
+        {
+            return new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+        }
+
+        Rect deviceRect = new(
+            screen.WorkingArea.Left,
+            screen.WorkingArea.Top,
+            screen.WorkingArea.Width,
+            screen.WorkingArea.Height);
+
+        return DeviceRectToDips(deviceRect);
+    }
+
+    private Rect DeviceRectToDips(Rect deviceRect)
+    {
+        PresentationSource? source = PresentationSource.FromVisual(this);
+        Matrix transform = source?.CompositionTarget?.TransformFromDevice ?? Matrix.Identity;
+        System.Windows.Point topLeft = transform.Transform(new System.Windows.Point(deviceRect.Left, deviceRect.Top));
+        System.Windows.Point bottomRight = transform.Transform(new System.Windows.Point(deviceRect.Right, deviceRect.Bottom));
+        return new Rect(topLeft, bottomRight);
+    }
+
+    private static double GetWindowDimension(double configuredValue, double actualValue, double minimumValue)
+    {
+        if (!double.IsNaN(configuredValue) && configuredValue > 0)
+        {
+            return configuredValue;
+        }
+
+        if (actualValue > 0)
+        {
+            return actualValue;
+        }
+
+        return minimumValue;
     }
 
     private async Task ShowImagePreviewAsync(ExplorerItem item)
@@ -792,9 +1053,28 @@ public partial class MainWindow : Window
         return item.IsFile && LithTechSpriteDecoder.IsCandidate(item.FileExtension);
     }
 
+    private static bool IsBankAudioPreviewCandidate(ExplorerItem item)
+    {
+        return item.IsFile &&
+               FmodBankDecoder.IsCandidate(item.FileExtension) &&
+               FmodBankAudioPreviewDocumentFactory.IsAvailable;
+    }
+
     private static bool IsAudioPreviewCandidate(ExplorerItem item)
     {
         return item.IsFile && AudioMetadataDecoder.IsSupportedExtension(item.FileExtension);
+    }
+
+    private string FormatModelInfo(LithTechModelDocument document)
+    {
+        return FormatText(
+            "ModelPreviewInfo",
+            document.StorageDescription,
+            document.Meshes.Count,
+            document.VertexCount,
+            document.TriangleCount,
+            document.SourceByteCount,
+            document.DecodedByteCount);
     }
 
     private static void StartPreviewTool(string filePath)
@@ -936,7 +1216,8 @@ public partial class MainWindow : Window
     {
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
         ExplorerItem? previewItem = selectedItems.Count == 1 &&
-                                    (IsSpritePreviewCandidate(selectedItems[0]) ||
+                                    (IsBankAudioPreviewCandidate(selectedItems[0]) ||
+                                     IsSpritePreviewCandidate(selectedItems[0]) ||
                                      IsAudioPreviewCandidate(selectedItems[0]) ||
                                      selectedItems[0].IsModelPreviewCandidate ||
                                      selectedItems[0].IsTextPreviewCandidate ||
@@ -944,12 +1225,21 @@ public partial class MainWindow : Window
             ? selectedItems[0]
             : null;
         OpenPreviewMenuItem.Visibility = previewItem is null ? Visibility.Collapsed : Visibility.Visible;
-        PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility;
+        ExplorerItem? bankItem = selectedItems.Count == 1 && FmodBankDecoder.IsCandidate(selectedItems[0].FileExtension)
+            ? selectedItems[0]
+            : null;
+        DecodeBankMenuItem.Visibility = bankItem is null ? Visibility.Collapsed : Visibility.Visible;
+        DecodeBankMenuItem.IsEnabled = !_isBusy && bankItem is not null;
+        DecodeBankMenuItem.Header = T("DecodeBank");
+        PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility == Visibility.Visible || DecodeBankMenuItem.Visibility == Visibility.Visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         OpenPreviewMenuItem.IsEnabled = !_isBusy && previewItem is not null;
         OpenPreviewMenuItem.Header = previewItem is not null && IsSpritePreviewCandidate(previewItem)
             ? T("OpenImagePreview")
             : previewItem switch
             {
+                ExplorerItem playableBankItem when IsBankAudioPreviewCandidate(playableBankItem) => T("OpenAudioPreview"),
                 ExplorerItem audioItem when IsAudioPreviewCandidate(audioItem) => T("OpenAudioPreview"),
                 { IsModelPreviewCandidate: true } => T("OpenModelPreview"),
                 { IsTextPreviewCandidate: true } => T("OpenTextPreview"),
@@ -1367,6 +1657,7 @@ public partial class MainWindow : Window
         ContentsHeaderText.Text = T("Contents");
         EmptyStateText.Text = T("EmptyFolder");
         OpenPreviewMenuItem.Header = T("OpenPreview");
+        DecodeBankMenuItem.Header = T("DecodeBank");
         ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
         SearchLabelText.Text = T("SearchLabel");
         SearchTextBox.ToolTip = T("SearchTooltip");

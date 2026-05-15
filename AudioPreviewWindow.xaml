@@ -176,15 +176,53 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="TrackListBoxItemStyle" TargetType="{x:Type ListBoxItem}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#D6D6D6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                Padding="8,6">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#222222"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#263A4A"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.56"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border BorderBrush="#383838"
             BorderThickness="1"
             Background="{StaticResource PanelDarkBrush}">
         <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="TrackListColumn" Width="0"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid x:Name="PlayerPanel"
+                  Grid.Column="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="44"/>
-                <RowDefinition Height="112"/>
+                <RowDefinition Height="*"/>
                 <RowDefinition Height="31"/>
                 <RowDefinition Height="62"/>
             </Grid.RowDefinitions>
@@ -365,6 +403,7 @@
                     <ColumnDefinition Width="60"/>
                     <ColumnDefinition Width="60"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="60"/>
                 </Grid.ColumnDefinitions>
 
                 <Button x:Name="PlayButton"
@@ -407,6 +446,34 @@
                            FontSize="15"
                            VerticalAlignment="Center"
                            Margin="22,0,0,0"/>
+                <Button x:Name="RepeatModeButton"
+                        Grid.Column="5"
+                        Style="{StaticResource TransportButtonStyle}"
+                        BorderThickness="1,0,0,0"
+                        Click="RepeatModeButton_Click">
+                    <Grid Width="24"
+                          Height="22">
+                        <Path x:Name="RepeatModeIcon"
+                              Width="22"
+                              Height="17"
+                              Stretch="Uniform"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.8"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              Data="M 5 4 L 16 4 L 19 7 M 19 7 L 16 10 M 19 7 L 5 7 M 19 15 L 8 15 L 5 12 M 5 12 L 8 9 M 5 12 L 19 12"/>
+                        <TextBlock x:Name="RepeatOneBadge"
+                                   Text="1"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   FontSize="9"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Margin="1,0,0,1"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Button>
             </Grid>
 
             <MediaElement x:Name="AudioPlayer"
@@ -416,6 +483,78 @@
                           MediaOpened="AudioPlayer_MediaOpened"
                           MediaEnded="AudioPlayer_MediaEnded"
                           MediaFailed="AudioPlayer_MediaFailed"/>
+            </Grid>
+
+            <Border x:Name="TrackListPanel"
+                    Grid.Column="1"
+                    Width="272"
+                    Background="#151515"
+                    BorderBrush="#050505"
+                    BorderThickness="1,0,0,0"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="44"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Background="#1C1C1C">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Text="Tracks"
+                                   Foreground="#F4F7FB"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="12,0,8,0"/>
+                        <TextBlock x:Name="TrackCountText"
+                                   Grid.Column="1"
+                                   Foreground="#8D8D8D"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Margin="8,0,12,0"/>
+                    </Grid>
+
+                    <ListBox x:Name="TrackListBox"
+                             Grid.Row="1"
+                             Background="#151515"
+                             BorderThickness="0"
+                             Foreground="#D6D6D6"
+                             ItemContainerStyle="{StaticResource TrackListBoxItemStyle}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             SelectionChanged="TrackListBox_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="44"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="{Binding Number}"
+                                               Foreground="#7F8C99"
+                                               FontSize="12"
+                                               VerticalAlignment="Center"
+                                               TextAlignment="Right"
+                                               Margin="0,0,10,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Title}"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
         </Grid>
     </Border>
 </Window>

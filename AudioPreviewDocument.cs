@@ -76,14 +76,14 @@ internal static class AudioPreviewDocumentFactory
         return AudioMetadataDecoder.IsWaveData(data);
     }
 
-    private static string CreateTemporaryAudioPath(string extension)
+    internal static string CreateTemporaryAudioPath(string extension)
     {
         string previewDirectory = Path.Combine(Path.GetTempPath(), "CFRezManager", "AudioPreview");
         Directory.CreateDirectory(previewDirectory);
         return Path.Combine(previewDirectory, $"{Guid.NewGuid():N}.{extension.TrimStart('.')}");
     }
 
-    private static void TryDeleteFile(string path)
+    internal static void TryDeleteFile(string path)
     {
         try
         {

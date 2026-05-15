@@ -16,7 +16,7 @@ internal static class LithTechModelSceneBuilder
         MediaColor.FromRgb(0x78, 0xD3, 0xD5)
     ];
 
-    public static Model3DGroup CreateScene(LithTechModelDocument document)
+    public static Model3DGroup CreateScene(LithTechModelDocument document, Func<string, ImageSource?>? textureResolver = null)
     {
         var scene = new Model3DGroup();
         scene.Children.Add(new AmbientLight(MediaColor.FromRgb(0x64, 0x6C, 0x78)));
@@ -26,6 +26,7 @@ internal static class LithTechModelSceneBuilder
         Bounds bounds = CalculateBounds(document);
         double scale = bounds.MaxDimension <= 0 ? 1 : 4.5 / bounds.MaxDimension;
         int meshIndex = 0;
+        var textureCache = new Dictionary<string, ImageSource?>(StringComparer.OrdinalIgnoreCase);
         foreach (LithTechMesh sourceMesh in document.Meshes)
         {
             MeshGeometry3D mesh = CreateMeshGeometry(sourceMesh, bounds, scale);
@@ -34,9 +35,7 @@ internal static class LithTechModelSceneBuilder
                 continue;
             }
 
-            var brush = new SolidColorBrush(MeshColors[meshIndex % MeshColors.Length]);
-            brush.Freeze();
-            var material = new DiffuseMaterial(brush);
+            Material material = CreateMaterial(sourceMesh, meshIndex, textureResolver, textureCache);
             material.Freeze();
             var geometry = new GeometryModel3D(mesh, material)
             {
@@ -59,6 +58,45 @@ internal static class LithTechModelSceneBuilder
         return scene;
     }
 
+    private static Material CreateMaterial(
+        LithTechMesh sourceMesh,
+        int meshIndex,
+        Func<string, ImageSource?>? textureResolver,
+        Dictionary<string, ImageSource?> textureCache)
+    {
+        ImageSource? texture = null;
+        if (sourceMesh.HasTextureCoordinates &&
+            !string.IsNullOrWhiteSpace(sourceMesh.TexturePath) &&
+            textureResolver is not null)
+        {
+            string texturePath = sourceMesh.TexturePath.Trim();
+            if (!textureCache.TryGetValue(texturePath, out texture))
+            {
+                texture = textureResolver(texturePath);
+                textureCache[texturePath] = texture;
+            }
+        }
+
+        System.Windows.Media.Brush brush;
+        if (texture is not null)
+        {
+            brush = new ImageBrush(texture)
+            {
+                Stretch = Stretch.Fill,
+                TileMode = TileMode.Tile,
+                Viewport = new System.Windows.Rect(0, 0, 1, 1),
+                ViewportUnits = BrushMappingMode.Absolute
+            };
+        }
+        else
+        {
+            brush = new SolidColorBrush(MeshColors[meshIndex % MeshColors.Length]);
+        }
+
+        brush.Freeze();
+        return new DiffuseMaterial(brush);
+    }
+
     private static MeshGeometry3D CreateMeshGeometry(LithTechMesh sourceMesh, Bounds bounds, double scale)
     {
         var mesh = new MeshGeometry3D();
@@ -68,6 +106,14 @@ internal static class LithTechModelSceneBuilder
                 (vertex.X - bounds.CenterX) * scale,
                 (vertex.Y - bounds.CenterY) * scale,
                 (vertex.Z - bounds.CenterZ) * scale));
+        }
+
+        if (sourceMesh.HasTextureCoordinates && sourceMesh.TextureCoordinates is not null)
+        {
+            foreach (LithTechVector2 coordinate in sourceMesh.TextureCoordinates)
+            {
+                mesh.TextureCoordinates.Add(new System.Windows.Point(coordinate.X, coordinate.Y));
+            }
         }
 
         foreach (int index in sourceMesh.TriangleIndices)

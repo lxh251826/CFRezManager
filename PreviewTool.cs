@@ -75,6 +75,7 @@ internal static class PreviewTool
                EncTextDecoder.IsCandidate(fileName, extension) ||
                CrossFireDatDecoder.IsCandidate(extension) ||
                LithTechSpriteDecoder.IsCandidate(extension) ||
+               FmodBankDecoder.IsCandidate(extension) ||
                ResourceTextDecoder.IsCandidate(fileName, extension) ||
                TextPreviewDecoder.IsPlainTextExtension(extension);
     }
@@ -96,7 +97,11 @@ internal static class PreviewTool
                 if (LithTechModelDecoder.TryDecode(data, fileName, extension, out LithTechModelDocument? modelDocument, out string? modelError) &&
                     modelDocument is not null)
                 {
-                    window = new ModelPreviewWindow(fileName, modelDocument, FormatModelInfo(modelDocument));
+                    window = new ModelPreviewWindow(
+                        fileName,
+                        modelDocument,
+                        FormatModelInfo(modelDocument),
+                        LithTechModelTextureLoader.CreateLocalResolver(filePath));
                     window.ShowInTaskbar = true;
                     return true;
                 }
@@ -116,7 +121,11 @@ internal static class PreviewTool
                 LithTechWorldDatDecoder.TryDecode(data, fileName, out LithTechModelDocument? worldDocument, out _) &&
                 worldDocument is not null)
             {
-                window = new ModelPreviewWindow(fileName, worldDocument, FormatModelInfo(worldDocument));
+                window = new ModelPreviewWindow(
+                    fileName,
+                    worldDocument,
+                    FormatModelInfo(worldDocument),
+                    LithTechModelTextureLoader.CreateLocalResolver(filePath));
                 window.ShowInTaskbar = true;
                 return true;
             }
@@ -138,6 +147,14 @@ internal static class PreviewTool
             string? audioError = null;
             if (AudioExtensions.Contains(extension) &&
                 TryCreateAudioWindow(fileName, filePath, data, out window, out audioError))
+            {
+                window!.ShowInTaskbar = true;
+                return true;
+            }
+
+            if (FmodBankDecoder.IsCandidate(extension) &&
+                FmodBankAudioPreviewDocumentFactory.IsAvailable &&
+                TryCreateBankAudioWindow(fileName, data, out window, out audioError))
             {
                 window!.ShowInTaskbar = true;
                 return true;
@@ -239,6 +256,45 @@ internal static class PreviewTool
         }
 
         window = new AudioPreviewWindow(document);
+        return true;
+    }
+
+    private static bool TryCreateBankAudioWindow(
+        string fileName,
+        byte[] data,
+        out Window? window,
+        out string? errorMessage)
+    {
+        window = null;
+        errorMessage = null;
+
+        if (!FmodBankAudioPreviewDocumentFactory.TryCreateSource(
+                fileName,
+                data,
+                out FmodBankAudioSource? source,
+                out errorMessage) ||
+            source is null ||
+            !FmodBankAudioPreviewDocumentFactory.TryCreate(source, 0, out AudioPreviewDocument? document, out errorMessage) ||
+            document is null)
+        {
+            return false;
+        }
+
+        Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
+        {
+            return index >= 0 && index < source.StreamCount
+                ? Task.Run(() => FmodBankAudioPreviewDocumentFactory.TryCreate(source, index, out AudioPreviewDocument? nextDocument, out _)
+                    ? nextDocument
+                    : null)
+                : Task.FromResult<AudioPreviewDocument?>(null);
+        }
+
+        window = new AudioPreviewWindow(
+            document,
+            source.StreamCount > 1 ? LoadDocumentAtAsync : null,
+            0,
+            source.StreamCount,
+            documentNames: source.GetStreamNames());
         return true;
     }
 
@@ -363,6 +419,19 @@ internal static class PreviewTool
 
             string info = $"{sprDocument.StorageDescription}, {sprDocument.FrameCount:N0} frames @ {sprDocument.FrameRate:N0} fps, {sprDocument.SourceByteCount:N0} bytes -> {sprDocument.DecodedByteCount:N0} bytes";
             window = new TextPreviewWindow(fileName, sprDocument.Text, info);
+            return true;
+        }
+
+        if (FmodBankDecoder.IsCandidate(extension))
+        {
+            if (!FmodBankDecoder.TryDecode(data, fileName, out FmodBankDocument? bankDocument, out errorMessage) ||
+                bankDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{bankDocument.StorageDescription}, {bankDocument.FsbBlockCount:N0} FSB5 blocks, {bankDocument.StreamCount:N0} streams, {bankDocument.SourceByteCount:N0} bytes -> {bankDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, bankDocument.Text, info);
             return true;
         }
 
