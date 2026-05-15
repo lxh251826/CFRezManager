@@ -61,8 +61,17 @@ jobs:
             - 预览 DDS DXT 块压缩纹理和常见未压缩 DDS 纹理。
             - 解析 LithTech SPR 动态精灵，并从 REZ 包或本地解包目录加载 DTX 帧自动播放动画。
             - 预览更多 LTB 二进制模型和 LTA world/map 文本资源。
-            - 预览和导出 FMOD `.bank`，支持内嵌 FSB5 音频播放、缩略图和曲目清单。
+            - 预览和导出 FMOD `.bank`，支持内嵌 FSB5 音频播放、缩略图、曲目清单和大型 BANK 递进加载。
+            - 缓存已生成缩略图，重复浏览未变化资源时可以跳过重复解码和渲染。
             - 支持中文和英文界面切换，并记住语言、目录和视图大小。
+
+            ### v1.1.1 更新
+
+            - 优化大型 FMOD `.bank` 预览：首条流准备好后即可打开播放器，剩余 FSB5 音频流会在后台递进追加。
+            - 为大型压缩 BANK 增加更快的 LZMA 前缀解码路径，减少音频预览弹出前的等待。
+            - 模型缩略图增加几何降采样，大型 DAT/LTB/LTA/LTC 模型会用受控网格生成缩略图，避免每次绘制全部三角面。
+            - 新增缩略图磁盘缓存，使用源文件或 REZ 内部文件元数据作为缓存键，未变化资源可以跨目录重扫复用上次生成的预览图。
+            - 优化音频曲目列表样式、加载状态显示、点击即播行为和深色滚动条颜色。
 
             ### v1.1.0 更新
 
@@ -93,8 +102,17 @@ jobs:
             - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
             - Parse LithTech SPR sprites and preview animations by loading referenced DTX frames from REZ archives or local extracted folders.
             - Preview more LTB binary models and LTA world/map text files.
-            - Preview and export FMOD `.bank` files with embedded FSB5 audio playback, thumbnails, and a track list.
+            - Preview and export FMOD `.bank` files with embedded FSB5 audio playback, thumbnails, a track list, and progressive loading for large banks.
+            - Cache generated thumbnails so unchanged resources can skip repeat decoding and rendering.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
+
+            ### v1.1.1 Changes
+
+            - Optimized large FMOD `.bank` previews: the player can open after the first stream is ready, while the remaining FSB5 streams are appended progressively in the background.
+            - Added a faster BANK LZMA prefix decode path for huge compressed banks, reducing the wait before audio preview appears.
+            - Added model-thumbnail geometry reduction so very large DAT/LTB/LTA/LTC model thumbnails render with a bounded mesh size instead of drawing every triangle.
+            - Added disk caching for generated thumbnails, keyed by source file/archive metadata, so unchanged resources can reuse previous preview images across folder rescans.
+            - Improved audio track list styling, loading state display, click-to-play behavior, and scrollbar colors for the dark player UI.
 
             ### v1.1.0 Changes
 

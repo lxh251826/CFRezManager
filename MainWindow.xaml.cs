@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Forms = System.Windows.Forms;
 
 namespace CFRezManager;
@@ -45,6 +46,87 @@ public partial class MainWindow : Window
         DependencyProperty.Register(nameof(TileNameMaxHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(44.0));
 
     private const double ListViewThreshold = 35.0;
+    private const int InitialBankPreviewStreams = 1;
+    private const int BankPreviewPrefixStepBytes = 8 * 1024 * 1024;
+    private const int BankBackgroundPrefetchStepBytes = 8 * 1024 * 1024;
+    private static readonly int[] FastBankPreviewPrefixSizes =
+    [
+        BankPreviewPrefixStepBytes,
+        32 * 1024 * 1024,
+        FmodBankDecoder.MaxThumbnailSourceBytes
+    ];
+    private static readonly int[] ProgressiveBankPreviewPrefixSizes =
+    [
+        2 * BankPreviewPrefixStepBytes,
+        3 * BankPreviewPrefixStepBytes,
+        32 * 1024 * 1024,
+        48 * 1024 * 1024,
+        64 * 1024 * 1024,
+        FmodBankDecoder.MaxThumbnailSourceBytes
+    ];
+
+    private sealed record BankAudioInitialLoadResult(FmodBankAudioSource Source, BankAudioStreamSession Session);
+
+    private sealed class BankAudioStreamSession : IDisposable
+    {
+        public BankAudioStreamSession(
+            string fileName,
+            Stream decodedStream,
+            bool compressed,
+            int sourceByteCount,
+            long totalDecodedBytes)
+        {
+            FileName = fileName;
+            DecodedStream = decodedStream;
+            Compressed = compressed;
+            SourceByteCount = sourceByteCount;
+            TotalDecodedBytes = totalDecodedBytes;
+        }
+
+        public string FileName { get; }
+        public Stream DecodedStream { get; }
+        public bool Compressed { get; }
+        public int SourceByteCount { get; }
+        public long TotalDecodedBytes { get; }
+        public MemoryStream DecodedData { get; } = new();
+        public int DecodedByteCount => checked((int)Math.Min(DecodedData.Length, int.MaxValue));
+        public bool IsComplete => DecodedData.Length >= TotalDecodedBytes;
+
+        public void Dispose()
+        {
+            DecodedStream.Dispose();
+            DecodedData.Dispose();
+        }
+    }
+
+    private sealed class BankAudioStreamState : IDisposable
+    {
+        public BankAudioStreamState(BankAudioStreamSession session, FmodBankAudioSource source)
+        {
+            Session = session;
+            CurrentSource = source;
+        }
+
+        public object SyncRoot { get; } = new();
+        public BankAudioStreamSession? Session { get; private set; }
+        public FmodBankAudioSource CurrentSource { get; private set; }
+
+        public void UpdateSource(FmodBankAudioSource source)
+        {
+            CurrentSource = source;
+        }
+
+        public void DisposeSession()
+        {
+            Session?.Dispose();
+            Session = null;
+        }
+
+        public void Dispose()
+        {
+            DisposeSession();
+        }
+    }
 
     private enum AppLanguage
     {
@@ -510,27 +592,36 @@ public partial class MainWindow : Window
     {
         SetBusy(true, keepSearchEnabled: true);
         SetStatus("LoadingModelPreview", item.Name);
+        bool openTextFallback = false;
 
         try
         {
             LithTechModelDocument? document = await item.LoadModelPreviewAsync();
             if (document is null)
             {
-                SetStatus("ModelPreviewUnsupported", item.Name);
-                return;
+                if (item.IsTextPreviewCandidate)
+                {
+                    openTextFallback = true;
+                }
+                else
+                {
+                    SetStatus("ModelPreviewUnsupported", item.Name);
+                }
             }
-
-            var window = new ModelPreviewWindow(
-                item.Name,
-                document,
-                FormatModelInfo(document),
-                LithTechModelTextureLoader.CreateResolver(item))
+            else
             {
-                Owner = this,
-                ShowInTaskbar = true
-            };
-            window.Show();
-            SetStatus("ModelPreviewOpened", item.Name);
+                var window = new ModelPreviewWindow(
+                    item.Name,
+                    document,
+                    FormatModelInfo(document),
+                    LithTechModelTextureLoader.CreateResolver(item))
+                {
+                    Owner = this,
+                    ShowInTaskbar = true
+                };
+                window.Show();
+                SetStatus("ModelPreviewOpened", item.Name);
+            }
         }
         catch (Exception ex)
         {
@@ -539,6 +630,11 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false, keepSearchEnabled: true);
+        }
+
+        if (openTextFallback)
+        {
+            await ShowTextPreviewAsync(item);
         }
     }
 
@@ -559,35 +655,44 @@ public partial class MainWindow : Window
 
         SetBusy(true, keepSearchEnabled: true);
         SetStatus("LoadingPreview", item.Name);
+        bool openTextFallback = false;
 
         try
         {
             AudioPreviewDocument? document = await LoadAudioPreviewDocumentAsync(item);
             if (document is null)
             {
-                SetStatus("PreviewUnsupported", item.Name);
-                return;
+                if (item.IsTextPreviewCandidate)
+                {
+                    openTextFallback = true;
+                }
+                else
+                {
+                    SetStatus("PreviewUnsupported", item.Name);
+                }
             }
-
-            Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
+            else
             {
-                return index >= 0 && index < audioItems.Count
-                    ? LoadAudioPreviewDocumentAsync(audioItems[index])
-                    : Task.FromResult<AudioPreviewDocument?>(null);
+                Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
+                {
+                    return index >= 0 && index < audioItems.Count
+                        ? LoadAudioPreviewDocumentAsync(audioItems[index])
+                        : Task.FromResult<AudioPreviewDocument?>(null);
+                }
+
+                var window = new AudioPreviewWindow(
+                    document,
+                    audioItems.Count > 1 ? LoadDocumentAtAsync : null,
+                    audioIndex,
+                    audioItems.Count,
+                    _settings,
+                    audioItems.Select(audioItem => audioItem.Name).ToList())
+                {
+                    ShowInTaskbar = true
+                };
+                ShowIndependentAudioPreviewWindow(window);
+                SetStatus("PreviewOpened", item.Name);
             }
-
-            var window = new AudioPreviewWindow(
-                document,
-                audioItems.Count > 1 ? LoadDocumentAtAsync : null,
-                audioIndex,
-                audioItems.Count,
-                _settings,
-                audioItems.Select(audioItem => audioItem.Name).ToList())
-            {
-                ShowInTaskbar = true
-            };
-            ShowIndependentAudioPreviewWindow(window);
-            SetStatus("PreviewOpened", item.Name);
         }
         catch (Exception ex)
         {
@@ -596,6 +701,11 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false, keepSearchEnabled: true);
+        }
+
+        if (openTextFallback)
+        {
+            await ShowTextPreviewAsync(item);
         }
     }
 
@@ -615,54 +725,44 @@ public partial class MainWindow : Window
 
         try
         {
-            FmodBankAudioSource? source = await Task.Run(() =>
-            {
-                byte[] data = ReadExplorerFileBytes(item, FmodBankDecoder.MaxSourceBytes);
-                return FmodBankAudioPreviewDocumentFactory.TryCreateSource(
-                    item.Name,
-                    data,
-                    out FmodBankAudioSource? bankSource,
-                    out _)
-                    ? bankSource
-                    : null;
-            });
+            BankAudioInitialLoadResult? loadResult = await Task.Run(() => LoadInitialBankAudioSource(item));
 
-            if (source is null || source.StreamCount == 0)
+            if (loadResult is null || loadResult.Source.StreamCount == 0)
             {
+                loadResult?.Session.Dispose();
                 openTextFallback = true;
             }
             else
             {
+                FmodBankAudioSource source = loadResult.Source;
+                var bankState = new BankAudioStreamState(loadResult.Session, source);
+                FmodBankAudioSource initialSource = CreateInitialBankAudioSource(source);
                 AudioPreviewDocument? document = await Task.Run(() =>
-                    FmodBankAudioPreviewDocumentFactory.TryCreate(source, 0, out AudioPreviewDocument? firstDocument, out _)
+                    FmodBankAudioPreviewDocumentFactory.TryCreate(initialSource, 0, out AudioPreviewDocument? firstDocument, out _)
                         ? firstDocument
                         : null);
                 if (document is null)
                 {
+                    bankState.Dispose();
                     openTextFallback = true;
                 }
                 else
                 {
-                    Task<AudioPreviewDocument?> LoadDocumentAtAsync(int index)
-                    {
-                        return index >= 0 && index < source.StreamCount
-                            ? Task.Run(() => FmodBankAudioPreviewDocumentFactory.TryCreate(source, index, out AudioPreviewDocument? nextDocument, out _)
-                                ? nextDocument
-                                : null)
-                            : Task.FromResult<AudioPreviewDocument?>(null);
-                    }
+                    Func<int, Task<AudioPreviewDocument?>> loadDocumentAtAsync = CreateBankDocumentLoader(bankState);
 
                     var window = new AudioPreviewWindow(
                         document,
-                        source.StreamCount > 1 ? LoadDocumentAtAsync : null,
+                        source.StreamCount > 1 ? loadDocumentAtAsync : null,
                         0,
-                        source.StreamCount,
+                        initialSource.StreamCount,
                         _settings,
-                        source.GetStreamNames())
+                        initialSource.GetStreamNames())
                     {
                         ShowInTaskbar = true
                     };
                     ShowIndependentAudioPreviewWindow(window);
+                    window.SetNavigationLoading(source.Partial || source.TotalStreamCount > window.DocumentCount);
+                    QueueBankAudioSourceProgressiveAppend(window, bankState);
                     SetStatus("PreviewOpened", item.Name);
                 }
             }
@@ -680,6 +780,567 @@ public partial class MainWindow : Window
         {
             await ShowTextPreviewAsync(item);
         }
+    }
+
+    private static BankAudioInitialLoadResult? LoadInitialBankAudioSource(ExplorerItem item)
+    {
+        BankAudioStreamSession? session = TryCreateBankAudioStreamSession(item);
+        if (session is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            foreach (int prefixSize in FastBankPreviewPrefixSizes)
+            {
+                ReadBankAudioSessionTo(session, prefixSize);
+                if (TryCreateBankAudioSource(session, out FmodBankAudioSource? source) &&
+                    source is not null)
+                {
+                    return new BankAudioInitialLoadResult(source, session);
+                }
+
+                if (session.IsComplete)
+                {
+                    break;
+                }
+            }
+
+            ReadBankAudioSessionTo(session, FmodBankDecoder.MaxDecodedBytes);
+            if (TryCreateBankAudioSource(session, out FmodBankAudioSource? fullSource) &&
+                fullSource is not null)
+            {
+                return new BankAudioInitialLoadResult(fullSource, session);
+            }
+        }
+        catch
+        {
+        }
+
+        session.Dispose();
+        return null;
+    }
+
+    private static BankAudioStreamSession? TryCreateBankAudioStreamSession(ExplorerItem item)
+    {
+        long fileByteCount = GetExplorerFileByteCount(item);
+        if (fileByteCount <= 0 || fileByteCount > FmodBankDecoder.MaxSourceBytes)
+        {
+            return null;
+        }
+
+        byte[] header = ReadExplorerFilePrefixBytes(item, 13);
+        bool compressed = FmodBankDecoder.IsCompressedBank(header);
+        int sourceByteCount = checked((int)Math.Min(fileByteCount, int.MaxValue));
+        Stream sourceStream = OpenExplorerFileReadStream(item);
+
+        if (compressed)
+        {
+            if (!BankLzmaAloneDecoder.TryGetDecodedByteCount(header, out long decodedBytes) ||
+                decodedBytes <= 0 ||
+                decodedBytes > FmodBankDecoder.MaxDecodedBytes ||
+                decodedBytes > int.MaxValue)
+            {
+                sourceStream.Dispose();
+                return null;
+            }
+
+            Stream? decodedStream = BankLzmaAloneDecoder.TryCreateDecompressStream(sourceStream, fileByteCount, out long streamDecodedBytes);
+            if (decodedStream is null || streamDecodedBytes != decodedBytes)
+            {
+                decodedStream?.Dispose();
+                sourceStream.Dispose();
+                return null;
+            }
+
+            return new BankAudioStreamSession(item.Name, decodedStream, true, sourceByteCount, decodedBytes);
+        }
+
+        if (fileByteCount > FmodBankDecoder.MaxDecodedBytes || fileByteCount > int.MaxValue)
+        {
+            sourceStream.Dispose();
+            return null;
+        }
+
+        return new BankAudioStreamSession(item.Name, sourceStream, false, sourceByteCount, fileByteCount);
+    }
+
+    private static Stream OpenExplorerFileReadStream(ExplorerItem item)
+    {
+        if (item.Kind == ExplorerItemKind.LocalFile)
+        {
+            return File.OpenRead(item.SourcePath);
+        }
+
+        if (item.Archive is null || item.ArchiveFile is null)
+        {
+            throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
+        }
+
+        FileStream archiveSource = File.OpenRead(item.Archive.FilePath);
+        archiveSource.Position = item.ArchiveFile.DataOffset;
+        return archiveSource;
+    }
+
+    private static bool ReadBankAudioSessionTo(BankAudioStreamSession session, int targetDecodedBytes)
+    {
+        long target = Math.Min(Math.Min(targetDecodedBytes, FmodBankDecoder.MaxDecodedBytes), session.TotalDecodedBytes);
+        if (target <= session.DecodedData.Length)
+        {
+            return false;
+        }
+
+        byte[] buffer = new byte[Math.Min(BankPreviewPrefixStepBytes, checked((int)(target - session.DecodedData.Length)))];
+        bool readAny = false;
+        while (session.DecodedData.Length < target)
+        {
+            int bytesToRead = (int)Math.Min(buffer.Length, target - session.DecodedData.Length);
+            int read = session.DecodedStream.Read(buffer, 0, bytesToRead);
+            if (read == 0)
+            {
+                break;
+            }
+
+            session.DecodedData.Write(buffer, 0, read);
+            readAny = true;
+        }
+
+        return readAny;
+    }
+
+    private static bool TryCreateBankAudioSource(BankAudioStreamSession session, out FmodBankAudioSource? source)
+    {
+        source = null;
+        if (session.DecodedData.Length <= 0)
+        {
+            return false;
+        }
+
+        int decodedByteCount = session.DecodedByteCount;
+        byte[] bankData;
+        int bankDataLength;
+        if (session.DecodedData.TryGetBuffer(out ArraySegment<byte> decodedBuffer) &&
+            decodedBuffer.Array is not null &&
+            decodedBuffer.Offset == 0)
+        {
+            bankData = decodedBuffer.Array;
+            bankDataLength = decodedByteCount;
+        }
+        else
+        {
+            bankData = session.DecodedData.ToArray();
+            bankDataLength = bankData.Length;
+        }
+
+        return FmodBankAudioPreviewDocumentFactory.TryCreateSourceFromPreparedData(
+            session.FileName,
+            bankData,
+            bankDataLength,
+            session.Compressed,
+            session.SourceByteCount,
+            decodedByteCount,
+            !session.IsComplete,
+            out source,
+            out _);
+    }
+
+    private static FmodBankAudioSource EnsureBankAudioSourceDecoded(BankAudioStreamState state, int requiredByteCount)
+    {
+        lock (state.SyncRoot)
+        {
+            return ReadBankAudioStateTo(state, requiredByteCount);
+        }
+    }
+
+    private static FmodBankAudioSource ReadBankAudioStateTo(BankAudioStreamState state, int targetDecodedBytes)
+    {
+        BankAudioStreamSession? session = state.Session;
+        if (session is null)
+        {
+            return state.CurrentSource;
+        }
+
+        ReadBankAudioSessionTo(session, targetDecodedBytes);
+        if (TryCreateBankAudioSource(session, out FmodBankAudioSource? source) &&
+            source is not null)
+        {
+            state.UpdateSource(source);
+            if (!source.Partial)
+            {
+                state.DisposeSession();
+            }
+
+            return source;
+        }
+
+        return state.CurrentSource;
+    }
+
+    private static int ReadBankAudioStateBytesTo(BankAudioStreamState state, int targetDecodedBytes)
+    {
+        BankAudioStreamSession? session = state.Session;
+        if (session is null)
+        {
+            return state.CurrentSource.DecodedByteCount;
+        }
+
+        ReadBankAudioSessionTo(session, targetDecodedBytes);
+        return session.DecodedByteCount;
+    }
+
+    private static FmodBankAudioSource CompleteBankAudioState(BankAudioStreamState state)
+    {
+        BankAudioStreamSession? session = state.Session;
+        if (session is null)
+        {
+            return state.CurrentSource;
+        }
+
+        if (TryCreateBankAudioSource(session, out FmodBankAudioSource? source) &&
+            source is not null)
+        {
+            state.UpdateSource(source);
+        }
+
+        state.DisposeSession();
+        return state.CurrentSource;
+    }
+
+    private static FmodBankAudioSource CreateInitialBankAudioSource(FmodBankAudioSource source)
+    {
+        if (source.StreamCount <= InitialBankPreviewStreams)
+        {
+            return source;
+        }
+
+        return source with
+        {
+            StreamCountLimit = InitialBankPreviewStreams,
+            Partial = true
+        };
+    }
+
+    private static Func<int, Task<AudioPreviewDocument?>> CreateBankDocumentLoader(FmodBankAudioSource source)
+    {
+        return index => index >= 0 && index < source.StreamCount
+            ? Task.Run(() => FmodBankAudioPreviewDocumentFactory.TryCreate(source, index, out AudioPreviewDocument? nextDocument, out _)
+                ? nextDocument
+                : null)
+            : Task.FromResult<AudioPreviewDocument?>(null);
+    }
+
+    private static Func<int, Task<AudioPreviewDocument?>> CreateBankDocumentLoader(BankAudioStreamState state)
+    {
+        return index => Task.Run(() =>
+        {
+            FmodBankAudioSource source;
+            lock (state.SyncRoot)
+            {
+                source = state.CurrentSource;
+            }
+
+            if (index < 0 || index >= source.StreamCount)
+            {
+                return null;
+            }
+
+            if (FmodBankAudioPreviewDocumentFactory.TryGetRequiredDecodedByteCount(source, index, out int requiredByteCount))
+            {
+                source = EnsureBankAudioSourceDecoded(state, requiredByteCount);
+            }
+
+            return FmodBankAudioPreviewDocumentFactory.TryCreate(source, index, out AudioPreviewDocument? nextDocument, out _)
+                ? nextDocument
+                : null;
+        });
+    }
+
+    private void QueueBankAudioSourceProgressiveAppend(
+        AudioPreviewWindow window,
+        BankAudioStreamState state)
+    {
+        window.Closed += (_, _) =>
+        {
+            lock (state.SyncRoot)
+            {
+                state.DisposeSession();
+            }
+        };
+        _ = AppendAndUpgradeBankAudioSourceAsync(window, state);
+    }
+
+    private static async Task AppendAndUpgradeBankAudioSourceAsync(
+        AudioPreviewWindow window,
+        BankAudioStreamState state)
+    {
+        try
+        {
+            FmodBankAudioSource source;
+            lock (state.SyncRoot)
+            {
+                source = state.CurrentSource;
+            }
+
+            if (source.TotalStreamCount > await GetAudioPreviewDocumentCountAsync(window))
+            {
+                await AppendBankAudioSourceAsync(window, source, CreateBankDocumentLoader(state));
+            }
+
+            lock (state.SyncRoot)
+            {
+                source = state.CurrentSource;
+            }
+
+            bool directoryComplete =
+                source.Partial &&
+                HasMetadataOnlyFsbBlock(source) &&
+                source.StreamCount <= await GetAudioPreviewDocumentCountAsync(window);
+            if (directoryComplete)
+            {
+                await SetAudioPreviewNavigationLoadingAsync(window, false);
+            }
+
+            FmodBankAudioSource currentSource = source;
+            while (currentSource.Partial)
+            {
+                if (await IsAudioPreviewClosedAsync(window))
+                {
+                    return;
+                }
+
+                int decodedByteCount;
+                long totalDecodedBytes;
+                lock (state.SyncRoot)
+                {
+                    if (state.Session is null)
+                    {
+                        break;
+                    }
+
+                    decodedByteCount = state.Session.DecodedByteCount;
+                    totalDecodedBytes = state.Session.TotalDecodedBytes;
+                }
+
+                int nextTarget = directoryComplete
+                    ? GetNextBankBackgroundPrefetchTarget(decodedByteCount, totalDecodedBytes)
+                    : GetNextBankProgressiveTarget(decodedByteCount, totalDecodedBytes);
+                if (nextTarget <= decodedByteCount)
+                {
+                    break;
+                }
+
+                int nextDecodedByteCount = await Task.Run(() =>
+                {
+                    lock (state.SyncRoot)
+                    {
+                        return directoryComplete
+                            ? ReadBankAudioStateBytesTo(state, nextTarget)
+                            : ReadBankAudioStateTo(state, nextTarget).DecodedByteCount;
+                    }
+                });
+
+                bool readAny = nextDecodedByteCount > decodedByteCount;
+                if (!directoryComplete)
+                {
+                    FmodBankAudioSource nextSource;
+                    lock (state.SyncRoot)
+                    {
+                        nextSource = state.CurrentSource;
+                    }
+
+                    currentSource = nextSource;
+                    if (nextSource.StreamCount > await GetAudioPreviewDocumentCountAsync(window))
+                    {
+                        await AppendBankAudioSourceAsync(window, nextSource, CreateBankDocumentLoader(state));
+                    }
+
+                    if (HasMetadataOnlyFsbBlock(nextSource) &&
+                        nextSource.StreamCount <= await GetAudioPreviewDocumentCountAsync(window))
+                    {
+                        directoryComplete = true;
+                        await SetAudioPreviewNavigationLoadingAsync(window, false);
+                    }
+                }
+
+                bool isComplete;
+                lock (state.SyncRoot)
+                {
+                    isComplete = state.Session is null || state.Session.IsComplete;
+                }
+
+                if (isComplete)
+                {
+                    lock (state.SyncRoot)
+                    {
+                        currentSource = CompleteBankAudioState(state);
+                    }
+
+                    await SetAudioPreviewNavigationLoadingAsync(window, false);
+                    return;
+                }
+
+                if (!readAny)
+                {
+                    break;
+                }
+            }
+
+            await SetAudioPreviewNavigationLoadingAsync(window, false);
+        }
+        catch
+        {
+            await SetAudioPreviewNavigationLoadingAsync(window, false);
+        }
+    }
+
+    private static bool HasMetadataOnlyFsbBlock(FmodBankAudioSource source)
+    {
+        foreach (FmodBankFsbBlock block in source.FsbBlocks)
+        {
+            if (block.Offset + (long)block.MetadataLength <= source.DecodedByteCount &&
+                block.Offset + (long)block.Length > source.DecodedByteCount)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task AppendBankAudioSourceAsync(
+        AudioPreviewWindow window,
+        FmodBankAudioSource source,
+        Func<int, Task<AudioPreviewDocument?>>? loaderOverride = null)
+    {
+        try
+        {
+            IReadOnlyList<string> streamNames = source.GetStreamNames();
+            Func<int, Task<AudioPreviewDocument?>> loader = loaderOverride ?? CreateBankDocumentLoader(source);
+            await window.Dispatcher.InvokeAsync(() => window.SetNavigationLoading(source.Partial || source.StreamCount > window.DocumentCount));
+            int currentCount = await window.Dispatcher.InvokeAsync(() => window.DocumentCount);
+            while (currentCount < source.StreamCount)
+            {
+                int nextCount = Math.Min(source.StreamCount, currentCount + GetBankStreamAppendBatchSize(currentCount));
+
+                bool keepGoing = await window.Dispatcher.InvokeAsync(
+                    () =>
+                    {
+                        if (!window.IsVisible || window.Dispatcher.HasShutdownStarted)
+                        {
+                            return false;
+                        }
+
+                        window.AppendDocumentNavigation(
+                            nextCount > 1 ? loader : null,
+                            nextCount,
+                            streamNames);
+                        return true;
+                    },
+                    DispatcherPriority.Background);
+
+                if (!keepGoing)
+                {
+                    break;
+                }
+
+                currentCount = nextCount;
+                await Task.Delay(GetBankStreamAppendDelayMilliseconds(currentCount));
+            }
+
+            await window.Dispatcher.InvokeAsync(() => window.SetNavigationLoading(source.Partial));
+        }
+        catch
+        {
+            if (!window.Dispatcher.HasShutdownStarted)
+            {
+                await window.Dispatcher.InvokeAsync(() => window.SetNavigationLoading(false));
+            }
+        }
+    }
+
+    private static int GetNextBankProgressiveTarget(int decodedByteCount, long totalDecodedBytes)
+    {
+        long targetLimit = Math.Min(totalDecodedBytes, FmodBankDecoder.MaxDecodedBytes);
+        foreach (int prefixSize in ProgressiveBankPreviewPrefixSizes)
+        {
+            if (prefixSize > decodedByteCount)
+            {
+                return checked((int)Math.Min(prefixSize, targetLimit));
+            }
+        }
+
+        int stepBytes = decodedByteCount < 512 * 1024 * 1024
+            ? 128 * 1024 * 1024
+            : 256 * 1024 * 1024;
+        return checked((int)Math.Min(decodedByteCount + (long)stepBytes, targetLimit));
+    }
+
+    private static int GetNextBankBackgroundPrefetchTarget(int decodedByteCount, long totalDecodedBytes)
+    {
+        long targetLimit = Math.Min(totalDecodedBytes, FmodBankDecoder.MaxDecodedBytes);
+        return checked((int)Math.Min(decodedByteCount + (long)BankBackgroundPrefetchStepBytes, targetLimit));
+    }
+
+    private static async Task<int> GetAudioPreviewDocumentCountAsync(AudioPreviewWindow window)
+    {
+        if (window.Dispatcher.HasShutdownStarted)
+        {
+            return int.MaxValue;
+        }
+
+        return await window.Dispatcher.InvokeAsync(() => window.DocumentCount);
+    }
+
+    private static async Task<bool> IsAudioPreviewClosedAsync(AudioPreviewWindow window)
+    {
+        if (window.Dispatcher.HasShutdownStarted)
+        {
+            return true;
+        }
+
+        return await window.Dispatcher.InvokeAsync(() => !window.IsVisible);
+    }
+
+    private static async Task SetAudioPreviewNavigationLoadingAsync(AudioPreviewWindow window, bool isLoading)
+    {
+        if (window.Dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        await window.Dispatcher.InvokeAsync(() => window.SetNavigationLoading(isLoading));
+    }
+
+    private static int GetBankStreamAppendBatchSize(int currentCount)
+    {
+        return currentCount switch
+        {
+            < 24 => 1,
+            < 64 => 2,
+            < 128 => 4,
+            < 256 => 8,
+            < 512 => 16,
+            < 1024 => 32,
+            < 4096 => 128,
+            < 16384 => 512,
+            < 65536 => 1024,
+            _ => 2048
+        };
+    }
+
+    private static int GetBankStreamAppendDelayMilliseconds(int currentCount)
+    {
+        return currentCount switch
+        {
+            < 24 => 80,
+            < 128 => 45,
+            < 512 => 24,
+            < 4096 => 16,
+            < 16384 => 10,
+            < 65536 => 6,
+            _ => 4
+        };
     }
 
     private static Task<AudioPreviewDocument?> LoadAudioPreviewDocumentAsync(ExplorerItem item)
@@ -1046,6 +1707,64 @@ public partial class MainWindow : Window
         source.Position = item.ArchiveFile.DataOffset;
         source.ReadExactly(data);
         return data;
+    }
+
+    private static byte[] ReadExplorerFilePrefixBytes(ExplorerItem item, int maxBytes)
+    {
+        if (maxBytes <= 0)
+        {
+            return [];
+        }
+
+        if (item.Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(item.SourcePath);
+            if (!info.Exists || info.Length < 0)
+            {
+                throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
+            }
+
+            int byteCount = checked((int)Math.Min(Math.Min(info.Length, maxBytes), int.MaxValue));
+            byte[] data = new byte[byteCount];
+            using FileStream source = File.OpenRead(item.SourcePath);
+            source.ReadExactly(data);
+            return data;
+        }
+
+        if (item.Archive is null ||
+            item.ArchiveFile is null ||
+            item.ArchiveFile.Size < 0)
+        {
+            throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
+        }
+
+        int archiveByteCount = checked((int)Math.Min(Math.Min(item.ArchiveFile.Size, maxBytes), int.MaxValue));
+        byte[] archiveData = new byte[archiveByteCount];
+        using FileStream archiveSource = File.OpenRead(item.Archive.FilePath);
+        archiveSource.Position = item.ArchiveFile.DataOffset;
+        archiveSource.ReadExactly(archiveData);
+        return archiveData;
+    }
+
+    private static long GetExplorerFileByteCount(ExplorerItem item)
+    {
+        if (item.Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(item.SourcePath);
+            if (!info.Exists || info.Length < 0)
+            {
+                throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
+            }
+
+            return info.Length;
+        }
+
+        if (item.ArchiveFile is not null && item.ArchiveFile.Size >= 0)
+        {
+            return item.ArchiveFile.Size;
+        }
+
+        throw new InvalidOperationException(LocalizedText.Format("PreviewFileTooLarge", item.Name));
     }
 
     private static bool IsSpritePreviewCandidate(ExplorerItem item)

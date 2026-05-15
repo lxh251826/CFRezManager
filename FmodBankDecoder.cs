@@ -9,13 +9,21 @@ internal sealed record FmodBankFsbBlock(
     int Index,
     int Offset,
     int Length,
+    int MetadataLength,
     uint HeaderVersion,
     uint StreamCount,
     uint SampleHeaderSize,
     uint NameTableSize,
     uint SampleDataSize,
     uint ModeFlags,
-    IReadOnlyList<string> SampleNames);
+    IReadOnlyList<string> SampleNames,
+    IReadOnlyList<FmodBankFsbSample> Samples);
+
+internal sealed record FmodBankFsbSample(
+    int HeaderOffset,
+    int HeaderLength,
+    int DataOffset,
+    int DataLength);
 
 internal sealed record FmodBankDocument(
     string Text,
@@ -38,7 +46,7 @@ internal static class FmodBankDecoder
 
     private const int FsbHeaderLength = 0x3C;
     private const int MaxPreviewNamesPerBlock = 40;
-    private const int MaxSampleNamesPerBlock = 8192;
+    private const int MaxSampleNamesPerBlock = 100_000;
     private const int MaxWholeBankStrings = 120;
 
     public static bool IsCandidate(string extension)
@@ -116,7 +124,7 @@ internal static class FmodBankDecoder
 
     public static bool IsCompressedBank(byte[] data)
     {
-        return LzmaAloneDecoder.IsCompressed(data);
+        return BankLzmaAloneDecoder.IsCompressed(data);
     }
 
     public static bool TryPrepareDecodedData(
@@ -128,7 +136,7 @@ internal static class FmodBankDecoder
     {
         bankData = null;
         errorMessage = null;
-        compressed = LzmaAloneDecoder.IsCompressed(data);
+        compressed = BankLzmaAloneDecoder.IsCompressed(data);
         decodedBytes = data.Length;
 
         if (!compressed)
@@ -137,7 +145,7 @@ internal static class FmodBankDecoder
             return true;
         }
 
-        if (!LzmaAloneDecoder.TryGetDecodedByteCount(data, out decodedBytes) ||
+        if (!BankLzmaAloneDecoder.TryGetDecodedByteCount(data, out decodedBytes) ||
             decodedBytes <= 0 ||
             decodedBytes > MaxDecodedBytes ||
             decodedBytes > int.MaxValue)
@@ -146,7 +154,7 @@ internal static class FmodBankDecoder
             return false;
         }
 
-        bankData = LzmaAloneDecoder.TryPrepareData(data, MaxDecodedBytes);
+        bankData = BankLzmaAloneDecoder.TryPrepareData(data, MaxDecodedBytes);
         if (bankData is null)
         {
             errorMessage = "BANK compression could not be decoded.";
@@ -164,13 +172,22 @@ internal static class FmodBankDecoder
                 data.AsSpan(8, 4).SequenceEqual("FSB5"u8));
     }
 
-    public static IReadOnlyList<FmodBankFsbBlock> ExtractFsbBlocks(byte[] data)
+    public static IReadOnlyList<FmodBankFsbBlock> ExtractFsbBlocks(byte[] data, bool includeMetadataOnlyBlocks = false)
+    {
+        return ExtractFsbBlocks(data, data.Length, includeMetadataOnlyBlocks);
+    }
+
+    public static IReadOnlyList<FmodBankFsbBlock> ExtractFsbBlocks(
+        byte[] data,
+        int dataLength,
+        bool includeMetadataOnlyBlocks = false)
     {
         var blocks = new List<FmodBankFsbBlock>();
+        dataLength = Math.Clamp(dataLength, 0, data.Length);
         int offset = 0;
-        while ((offset = IndexOf(data, "FSB5"u8, offset)) >= 0)
+        while ((offset = IndexOf(data, dataLength, "FSB5"u8, offset)) >= 0)
         {
-            if (offset + FsbHeaderLength > data.Length)
+            if (offset + FsbHeaderLength > dataLength)
             {
                 offset += 4;
                 continue;
@@ -184,36 +201,54 @@ internal static class FmodBankDecoder
             uint modeFlags = ReadUInt32(data, offset + 24);
 
             ulong blockLength = (ulong)FsbHeaderLength + sampleHeaderSize + nameTableSize + sampleDataSize;
-            if (blockLength > int.MaxValue || offset + (long)blockLength > data.Length)
+            ulong metadataLength = (ulong)FsbHeaderLength + sampleHeaderSize + nameTableSize;
+            if (blockLength > int.MaxValue ||
+                metadataLength > int.MaxValue ||
+                streamCount > int.MaxValue)
+            {
+                offset += 4;
+                continue;
+            }
+
+            bool blockComplete = offset + (long)blockLength <= dataLength;
+            bool metadataComplete = offset + (long)metadataLength <= dataLength;
+            if (!blockComplete && (!includeMetadataOnlyBlocks || !metadataComplete))
             {
                 offset += 4;
                 continue;
             }
 
             int nameOffset = checked(offset + FsbHeaderLength + (int)sampleHeaderSize);
-            int sampleNameLimit = streamCount > int.MaxValue
-                ? MaxSampleNamesPerBlock
-                : Math.Min((int)streamCount, MaxSampleNamesPerBlock);
-            IReadOnlyList<string> sampleNames = TryExtractFmodSampleNames(data, offset, (int)blockLength, sampleNameLimit);
-            if (sampleNames.Count == 0 && nameTableSize > 0 && nameOffset + (long)nameTableSize <= data.Length)
+            int sampleNameLimit = Math.Min((int)streamCount, MaxSampleNamesPerBlock);
+            IReadOnlyList<string> sampleNames = Array.Empty<string>();
+            if (nameTableSize > 0 && nameOffset + (long)nameTableSize <= dataLength)
             {
-                sampleNames =
-                    ExtractNullTerminatedStrings(data.AsSpan(nameOffset, (int)nameTableSize), sampleNameLimit)
-                    .Where(IsLikelySampleName)
-                    .ToList();
+                sampleNames = ExtractFsbNameTable(data.AsSpan(nameOffset, (int)nameTableSize), (int)streamCount, sampleNameLimit);
             }
+
+            IReadOnlyList<FmodBankFsbSample> samples = TryExtractFsbSamples(
+                data.AsSpan(offset + FsbHeaderLength, (int)sampleHeaderSize),
+                (int)streamCount,
+                checked((int)sampleDataSize));
 
             blocks.Add(new FmodBankFsbBlock(
                 blocks.Count,
                 offset,
                 (int)blockLength,
+                (int)metadataLength,
                 headerVersion,
                 streamCount,
                 sampleHeaderSize,
                 nameTableSize,
                 sampleDataSize,
                 modeFlags,
-                sampleNames));
+                sampleNames,
+                samples));
+
+            if (!blockComplete)
+            {
+                break;
+            }
 
             offset += Math.Max(4, (int)blockLength);
         }
@@ -249,6 +284,158 @@ internal static class FmodBankDecoder
         {
             return Array.Empty<string>();
         }
+    }
+
+    private static IReadOnlyList<FmodBankFsbSample> TryExtractFsbSamples(
+        ReadOnlySpan<byte> sampleHeaders,
+        int streamCount,
+        int sampleDataSize)
+    {
+        if (streamCount <= 0 || sampleHeaders.Length < streamCount * 8)
+        {
+            return Array.Empty<FmodBankFsbSample>();
+        }
+
+        try
+        {
+            var offsets = new List<int>(streamCount);
+            int position = 0;
+            for (int i = 0; i < streamCount; i++)
+            {
+                if (position + 8 > sampleHeaders.Length)
+                {
+                    return Array.Empty<FmodBankFsbSample>();
+                }
+
+                uint first = BinaryPrimitives.ReadUInt32LittleEndian(sampleHeaders[position..]);
+                uint flags = first & 0x3F;
+                uint dataOffset = first >> 6;
+                long sampleOffset = dataOffset * 16L;
+                if (sampleOffset < 0 || sampleOffset > sampleDataSize)
+                {
+                    return Array.Empty<FmodBankFsbSample>();
+                }
+
+                int headerOffset = position;
+                offsets.Add((int)sampleOffset);
+                position += 8;
+                if ((flags & 0x01) != 0)
+                {
+                    bool hasNextChunk = true;
+                    while (hasNextChunk)
+                    {
+                        if (position + 4 > sampleHeaders.Length)
+                        {
+                            return Array.Empty<FmodBankFsbSample>();
+                        }
+
+                        uint chunkHeader = BinaryPrimitives.ReadUInt32LittleEndian(sampleHeaders[position..]);
+                        hasNextChunk = (chunkHeader & 0x01) != 0;
+                        int chunkSize = checked((int)((chunkHeader >> 1) & 0x00FF_FFFF));
+                        position += 4;
+                        if (chunkSize < 0 || position + chunkSize > sampleHeaders.Length)
+                        {
+                            return Array.Empty<FmodBankFsbSample>();
+                        }
+
+                        position += chunkSize;
+                    }
+                }
+
+                int headerLength = position - headerOffset;
+                if (headerLength <= 0)
+                {
+                    return Array.Empty<FmodBankFsbSample>();
+                }
+            }
+
+            var samples = new List<FmodBankFsbSample>(streamCount);
+            int headerPosition = 0;
+            for (int i = 0; i < offsets.Count; i++)
+            {
+                int headerOffset = headerPosition;
+                if (headerOffset + 8 > sampleHeaders.Length)
+                {
+                    return Array.Empty<FmodBankFsbSample>();
+                }
+
+                uint first = BinaryPrimitives.ReadUInt32LittleEndian(sampleHeaders[headerOffset..]);
+                uint flags = first & 0x3F;
+                headerPosition += 8;
+                if ((flags & 0x01) != 0)
+                {
+                    bool hasNextChunk = true;
+                    while (hasNextChunk)
+                    {
+                        if (headerPosition + 4 > sampleHeaders.Length)
+                        {
+                            return Array.Empty<FmodBankFsbSample>();
+                        }
+
+                        uint chunkHeader = BinaryPrimitives.ReadUInt32LittleEndian(sampleHeaders[headerPosition..]);
+                        hasNextChunk = (chunkHeader & 0x01) != 0;
+                        int chunkSize = checked((int)((chunkHeader >> 1) & 0x00FF_FFFF));
+                        headerPosition += 4 + chunkSize;
+                        if (headerPosition > sampleHeaders.Length)
+                        {
+                            return Array.Empty<FmodBankFsbSample>();
+                        }
+                    }
+                }
+
+                int headerLength = headerPosition - headerOffset;
+                int start = offsets[i];
+                int end = i + 1 < offsets.Count ? offsets[i + 1] : sampleDataSize;
+                if (end < start)
+                {
+                    return Array.Empty<FmodBankFsbSample>();
+                }
+
+                samples.Add(new FmodBankFsbSample(headerOffset, headerLength, start, end - start));
+            }
+
+            return samples;
+        }
+        catch
+        {
+            return Array.Empty<FmodBankFsbSample>();
+        }
+    }
+
+    private static IReadOnlyList<string> ExtractFsbNameTable(ReadOnlySpan<byte> data, int streamCount, int maxCount)
+    {
+        if (data.Length < streamCount * sizeof(uint) || streamCount <= 0 || maxCount <= 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var names = new List<string>(Math.Min(streamCount, maxCount));
+        for (int i = 0; i < streamCount && names.Count < maxCount; i++)
+        {
+            int nameOffset = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(i * sizeof(uint), sizeof(uint))));
+            if (nameOffset < streamCount * sizeof(uint) || nameOffset >= data.Length)
+            {
+                names.Add(string.Empty);
+                continue;
+            }
+
+            int end = nameOffset;
+            while (end < data.Length && data[end] != 0)
+            {
+                end++;
+            }
+
+            if (end <= nameOffset)
+            {
+                names.Add(string.Empty);
+                continue;
+            }
+
+            string value = DecodePrintable(data[nameOffset..end]).Trim();
+            names.Add(IsLikelySampleName(value) ? value : string.Empty);
+        }
+
+        return names;
     }
 
     private static string BuildPreviewText(
@@ -442,6 +629,20 @@ internal static class FmodBankDecoder
     private static int IndexOf(byte[] data, ReadOnlySpan<byte> signature, int start)
     {
         for (int i = start; i <= data.Length - signature.Length; i++)
+        {
+            if (data.AsSpan(i, signature.Length).SequenceEqual(signature))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int IndexOf(byte[] data, int dataLength, ReadOnlySpan<byte> signature, int start)
+    {
+        dataLength = Math.Clamp(dataLength, 0, data.Length);
+        for (int i = start; i <= dataLength - signature.Length; i++)
         {
             if (data.AsSpan(i, signature.Length).SequenceEqual(signature))
             {

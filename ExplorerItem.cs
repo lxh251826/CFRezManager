@@ -446,29 +446,71 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     private async Task LoadThumbnailCoreAsync()
     {
-        await ThumbnailSemaphore.WaitAsync();
         try
         {
-            ImageSource? thumbnail = await Task.Run(LoadThumbnail);
-            if (thumbnail is not null)
+            CachedThumbnail? cachedThumbnail = await Task.Run(LoadCachedThumbnail);
+            if (cachedThumbnail is not null)
             {
-                _thumbnailSource = thumbnail;
-                OnPropertyChanged(nameof(ThumbnailSource));
-                OnPropertyChanged(nameof(HasThumbnail));
+                ApplyThumbnail(cachedThumbnail.Source, cachedThumbnail.StorageKind);
+                return;
             }
-            else
+
+            await ThumbnailSemaphore.WaitAsync();
+            try
             {
-                ResetThumbnailLoadTask();
+                cachedThumbnail = await Task.Run(LoadCachedThumbnail);
+                if (cachedThumbnail is not null)
+                {
+                    ApplyThumbnail(cachedThumbnail.Source, cachedThumbnail.StorageKind);
+                    return;
+                }
+
+                ThumbnailLoadResult result = await Task.Run(LoadThumbnailAndCache);
+                if (result.Source is not null)
+                {
+                    ApplyThumbnail(result.Source, result.StorageKind);
+                }
+                else
+                {
+                    ResetThumbnailLoadTask();
+                }
+            }
+            finally
+            {
+                ThumbnailSemaphore.Release();
             }
         }
         catch
         {
             ResetThumbnailLoadTask();
         }
-        finally
+    }
+
+    private CachedThumbnail? LoadCachedThumbnail()
+    {
+        return ThumbnailDiskCache.TryLoad(this, out CachedThumbnail? thumbnail)
+            ? thumbnail
+            : null;
+    }
+
+    private ThumbnailLoadResult LoadThumbnailAndCache()
+    {
+        ImageSource? thumbnail = LoadThumbnail();
+        ImageStorageKind storageKind = _imageStorageKind;
+        if (thumbnail is not null)
         {
-            ThumbnailSemaphore.Release();
+            ThumbnailDiskCache.TrySave(this, thumbnail, storageKind);
         }
+
+        return new ThumbnailLoadResult(thumbnail, storageKind);
+    }
+
+    private void ApplyThumbnail(ImageSource thumbnail, ImageStorageKind storageKind)
+    {
+        SetImageStorageKind(storageKind);
+        _thumbnailSource = thumbnail;
+        OnPropertyChanged(nameof(ThumbnailSource));
+        OnPropertyChanged(nameof(HasThumbnail));
     }
 
     private void ResetThumbnailLoadTask()
@@ -478,6 +520,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             _thumbnailLoadTask = null;
         }
     }
+
+    private sealed record ThumbnailLoadResult(ImageSource? Source, ImageStorageKind StorageKind);
 
     private bool CanLoadThumbnail()
     {
@@ -529,15 +573,18 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return null;
             }
 
+            if (FmodBankDecoder.IsCandidate(extension))
+            {
+                return LoadFmodBankThumbnail();
+            }
+
             int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
                 ? MaxWorldDatPreviewBytes
                 : LithTechModelDecoder.IsCandidate(extension)
                         ? MaxModelPreviewBytes
                         : CrossFireDatDecoder.IsCandidate(extension)
                             ? MaxModelPreviewBytes
-                            : FmodBankDecoder.IsCandidate(extension)
-                                ? FmodBankDecoder.MaxThumbnailSourceBytes
-                                : MaxThumbnailBytes;
+                            : MaxThumbnailBytes;
             byte[]? data = ReadFileBytes(maxBytes);
             if (data is null)
             {
@@ -549,7 +596,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 worldDocument is not null)
             {
                 SetImageStorageKind(GetWorldDatStorageKind(data));
-                return LithTechModelThumbnailRenderer.TryRender(SimplifyForThumbnail(worldDocument, MaxWorldDatThumbnailTriangles));
+                return LithTechModelThumbnailRenderer.TryRender(
+                    LithTechThumbnailGeometryReducer.ReduceForThumbnail(worldDocument));
             }
 
             if (CrossFireDatDecoder.IsCandidate(extension))
@@ -560,11 +608,6 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             if (LithTechSpriteDecoder.IsCandidate(extension))
             {
                 return LoadLithTechSpriteThumbnail(data);
-            }
-
-            if (FmodBankDecoder.IsCandidate(extension))
-            {
-                return LoadFmodBankThumbnail(data);
             }
 
             if (AudioExtensions.Contains(extension))
@@ -591,7 +634,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 }
 
                 SetImageStorageKind(GetLithTechModelStorageKind(data));
-                return LithTechModelThumbnailRenderer.TryRender(document);
+                return LithTechModelThumbnailRenderer.TryRender(
+                    LithTechThumbnailGeometryReducer.ReduceForThumbnail(document));
             }
 
             if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
@@ -639,7 +683,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 out _) &&
             modelDocument is not null)
         {
-            ImageSource? modelThumbnail = LithTechModelThumbnailRenderer.TryRender(modelDocument);
+            ImageSource? modelThumbnail = LithTechModelThumbnailRenderer.TryRender(
+                LithTechThumbnailGeometryReducer.ReduceForThumbnail(modelDocument));
             if (modelThumbnail is not null)
             {
                 SetImageStorageKind(ImageStorageKind.LtcModel);
@@ -713,9 +758,15 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
     }
 
-    private ImageSource? LoadFmodBankThumbnail(byte[] data)
+    private ImageSource? LoadFmodBankThumbnail()
     {
-        SetImageStorageKind(FmodBankDecoder.IsCompressedBank(data)
+        byte[]? data = ReadFmodBankThumbnailBytes(out bool compressed);
+        return data is null ? null : LoadFmodBankThumbnail(data, compressed);
+    }
+
+    private ImageSource? LoadFmodBankThumbnail(byte[] data, bool compressed)
+    {
+        SetImageStorageKind(compressed
             ? ImageStorageKind.FmodBankLzma
             : ImageStorageKind.FmodBank);
 
@@ -742,6 +793,33 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
         string badge = document.FsbBlockCount > 0 ? "FSB" : "BANK";
         return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
+    }
+
+    private byte[]? ReadFmodBankThumbnailBytes(out bool compressed)
+    {
+        compressed = false;
+        byte[]? prefix = ReadFilePrefixBytes(FmodBankDecoder.MaxThumbnailSourceBytes);
+        if (prefix is null || prefix.Length == 0)
+        {
+            return null;
+        }
+
+        compressed = FmodBankDecoder.IsCompressedBank(prefix);
+        if (!compressed)
+        {
+            return prefix;
+        }
+
+        long? fileByteCount = GetFileByteCount();
+        if (fileByteCount is null ||
+            fileByteCount <= prefix.Length ||
+            fileByteCount > FmodBankDecoder.MaxSourceBytes ||
+            fileByteCount > int.MaxValue)
+        {
+            return prefix;
+        }
+
+        return ReadLzmaFilePrefixBytes(FmodBankDecoder.MaxThumbnailSourceBytes) ?? prefix;
     }
 
     private static LithTechModelDocument SimplifyForThumbnail(LithTechModelDocument document, int maxTriangles)
@@ -1204,6 +1282,81 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         source.Position = ArchiveFile.DataOffset;
         source.ReadExactly(data);
         return data;
+    }
+
+    private byte[]? ReadFilePrefixBytes(int maxBytes)
+    {
+        if (maxBytes <= 0)
+        {
+            return null;
+        }
+
+        if (Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(SourcePath);
+            if (!info.Exists || info.Length <= 0)
+            {
+                return null;
+            }
+
+            int byteCount = checked((int)Math.Min(Math.Min(info.Length, maxBytes), int.MaxValue));
+            byte[] data = new byte[byteCount];
+            using FileStream source = File.OpenRead(SourcePath);
+            source.ReadExactly(data);
+            return data;
+        }
+
+        if (Archive is null ||
+            ArchiveFile is null ||
+            ArchiveFile.Size <= 0)
+        {
+            return null;
+        }
+
+        int archiveByteCount = checked((int)Math.Min(Math.Min(ArchiveFile.Size, maxBytes), int.MaxValue));
+        byte[] archiveData = new byte[archiveByteCount];
+        using FileStream archiveSource = File.OpenRead(Archive.FilePath);
+        archiveSource.Position = ArchiveFile.DataOffset;
+        archiveSource.ReadExactly(archiveData);
+        return archiveData;
+    }
+
+    private long? GetFileByteCount()
+    {
+        if (Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(SourcePath);
+            return info.Exists ? info.Length : null;
+        }
+
+        return ArchiveFile?.Size;
+    }
+
+    private byte[]? ReadLzmaFilePrefixBytes(int maxDecodedBytes)
+    {
+        if (Kind == ExplorerItemKind.LocalFile)
+        {
+            var info = new FileInfo(SourcePath);
+            if (!info.Exists || info.Length <= 0 || info.Length > FmodBankDecoder.MaxSourceBytes)
+            {
+                return null;
+            }
+
+            using FileStream source = File.OpenRead(SourcePath);
+            return BankLzmaAloneDecoder.TryDecompressPrefix(source, info.Length, maxDecodedBytes);
+        }
+
+        if (Archive is null ||
+            ArchiveFile is null ||
+            ArchiveFile.Size <= 0 ||
+            ArchiveFile.Size > FmodBankDecoder.MaxSourceBytes)
+        {
+            return null;
+        }
+
+        using FileStream archiveSource = File.OpenRead(Archive.FilePath);
+        archiveSource.Position = ArchiveFile.DataOffset;
+        return BankLzmaAloneDecoder.TryDecompressPrefix(archiveSource, ArchiveFile.Size, maxDecodedBytes);
     }
 
     private static ImageSource LoadBitmapImage(byte[] data, bool decodeThumbnail)

@@ -70,14 +70,14 @@ internal static class EncTextDecoder
 
 internal static class TextPreviewDecoder
 {
-    private static readonly Encoding Utf8Strict =
-        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly Encoding Utf8 =
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
 
-    private static readonly Encoding Utf16LeStrict =
-        new UnicodeEncoding(bigEndian: false, byteOrderMark: true, throwOnInvalidBytes: true);
+    private static readonly Encoding Utf16Le =
+        new UnicodeEncoding(bigEndian: false, byteOrderMark: true, throwOnInvalidBytes: false);
 
-    private static readonly Encoding Utf16BeStrict =
-        new UnicodeEncoding(bigEndian: true, byteOrderMark: true, throwOnInvalidBytes: true);
+    private static readonly Encoding Utf16Be =
+        new UnicodeEncoding(bigEndian: true, byteOrderMark: true, throwOnInvalidBytes: false);
 
     private static readonly HashSet<string> PlainTextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -139,17 +139,17 @@ internal static class TextPreviewDecoder
     {
         if (StartsWithBytes(bytes, 0xEF, 0xBB, 0xBF))
         {
-            return TryDecodeNamed(bytes[3..], Utf8Strict, "UTF-8", out text, out encodingName);
+            return TryDecodeNamed(bytes[3..], Utf8, "UTF-8", out text, out encodingName);
         }
 
         if (StartsWithBytes(bytes, 0xFF, 0xFE))
         {
-            return TryDecodeNamed(bytes[2..], Utf16LeStrict, "UTF-16 LE", out text, out encodingName);
+            return TryDecodeNamed(bytes[2..], Utf16Le, "UTF-16 LE", out text, out encodingName);
         }
 
         if (StartsWithBytes(bytes, 0xFE, 0xFF))
         {
-            return TryDecodeNamed(bytes[2..], Utf16BeStrict, "UTF-16 BE", out text, out encodingName);
+            return TryDecodeNamed(bytes[2..], Utf16Be, "UTF-16 BE", out text, out encodingName);
         }
 
         text = string.Empty;
@@ -181,9 +181,9 @@ internal static class TextPreviewDecoder
 
     private static IEnumerable<EncodingCandidate> GetCandidates(bool preferKorean)
     {
-        EncodingCandidate utf8 = new("UTF-8", Utf8Strict);
-        EncodingCandidate cp949 = new("CP949", GetStrictEncoding(949));
-        EncodingCandidate gb18030 = new("GB18030", GetStrictEncoding("GB18030"));
+        EncodingCandidate utf8 = new("UTF-8", Utf8);
+        EncodingCandidate cp949 = new("CP949", GetTextEncoding(949));
+        EncodingCandidate gb18030 = new("GB18030", GetTextEncoding("GB18030"));
 
         if (preferKorean)
         {
@@ -199,20 +199,14 @@ internal static class TextPreviewDecoder
         yield return gb18030;
     }
 
-    private static Encoding GetStrictEncoding(int codePage)
+    private static Encoding GetTextEncoding(int codePage)
     {
-        return Encoding.GetEncoding(
-            codePage,
-            EncoderExceptionFallback.ExceptionFallback,
-            DecoderExceptionFallback.ExceptionFallback);
+        return Encoding.GetEncoding(codePage);
     }
 
-    private static Encoding GetStrictEncoding(string name)
+    private static Encoding GetTextEncoding(string name)
     {
-        return Encoding.GetEncoding(
-            name,
-            EncoderExceptionFallback.ExceptionFallback,
-            DecoderExceptionFallback.ExceptionFallback);
+        return Encoding.GetEncoding(name);
     }
 
     private static bool TryDecodeWithEncoding(ReadOnlySpan<byte> bytes, Encoding encoding, out string text)
@@ -220,9 +214,9 @@ internal static class TextPreviewDecoder
         try
         {
             text = encoding.GetString(bytes);
-            return true;
+            return text.IndexOf('\uFFFD') < 0;
         }
-        catch (DecoderFallbackException)
+        catch (ArgumentException)
         {
             text = string.Empty;
             return false;

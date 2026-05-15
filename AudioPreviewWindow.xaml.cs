@@ -1,5 +1,8 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -12,6 +15,34 @@ namespace CFRezManager;
 public partial class AudioPreviewWindow : Window
 {
     private sealed record AudioPreviewTrackItem(string Number, string Title);
+
+    private sealed class TrackItemCollection : ObservableCollection<AudioPreviewTrackItem>
+    {
+        public TrackItemCollection(IEnumerable<AudioPreviewTrackItem> items)
+            : base(items)
+        {
+        }
+
+        public void AddRange(IEnumerable<AudioPreviewTrackItem> items)
+        {
+            CheckReentrancy();
+            bool added = false;
+            foreach (AudioPreviewTrackItem item in items)
+            {
+                Items.Add(item);
+                added = true;
+            }
+
+            if (!added)
+            {
+                return;
+            }
+
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+    }
 
     private enum AudioRepeatMode
     {
@@ -41,8 +72,8 @@ public partial class AudioPreviewWindow : Window
     private const int SpectrumPeakColor = unchecked((int)0xFF78D0FF);
 
     private readonly DispatcherTimer _positionTimer;
-    private readonly Func<int, Task<AudioPreviewDocument?>>? _loadDocumentAsync;
-    private readonly IReadOnlyList<AudioPreviewTrackItem> _trackItems = [];
+    private Func<int, Task<AudioPreviewDocument?>>? _loadDocumentAsync;
+    private TrackItemCollection _trackItems = new([]);
     private UserSettings _settings = new();
     private AudioPreviewDocument? _document;
     private float[] _waveformPeaks = [];
@@ -69,6 +100,7 @@ public partial class AudioPreviewWindow : Window
     private int _documentCount = 1;
     private int _waveformRequestVersion;
     private AudioRepeatMode _repeatMode = AudioRepeatMode.Directory;
+    private bool _isNavigationLoading;
     private bool _isDocumentLoading;
     private bool _isDraggingPosition;
     private bool _isUpdatingPosition;
@@ -111,7 +143,7 @@ public partial class AudioPreviewWindow : Window
         _loadDocumentAsync = loadDocumentAsync;
         _documentCount = Math.Max(1, documentCount);
         _documentIndex = Math.Clamp(documentIndex, 0, _documentCount - 1);
-        _trackItems = BuildTrackItems(documentNames, _documentCount);
+        _trackItems = new TrackItemCollection(BuildTrackItems(documentNames, _documentCount));
         TrackListBox.ItemsSource = _trackItems;
         UpdateTrackListVisibility();
         UpdateRepeatModeButton();
@@ -124,6 +156,61 @@ public partial class AudioPreviewWindow : Window
 
         SetDocument(document, deletePrevious: false, startPlayback: false);
         Loaded += AudioPreviewWindow_Loaded;
+    }
+
+    public int DocumentCount => _documentCount;
+
+    public void SetNavigationLoading(bool isLoading)
+    {
+        if (_isNavigationLoading != isLoading)
+        {
+            _isNavigationLoading = isLoading;
+        }
+
+        UpdateTrackListVisibility();
+        UpdateNavigationState();
+    }
+
+    public void UpdateDocumentNavigation(
+        Func<int, Task<AudioPreviewDocument?>>? loadDocumentAsync,
+        int documentCount,
+        IReadOnlyList<string>? documentNames = null)
+    {
+        _loadDocumentAsync = loadDocumentAsync;
+        _documentCount = Math.Max(1, documentCount);
+        _documentIndex = Math.Clamp(_documentIndex, 0, _documentCount - 1);
+        _trackItems.Clear();
+        _trackItems.AddRange(BuildTrackItems(documentNames, _documentCount));
+
+        TrackListBox.Items.Refresh();
+        RefreshDocumentText();
+        UpdateTrackListVisibility();
+        UpdateNavigationState();
+        UpdateSelectedTrackListItem();
+    }
+
+    public void AppendDocumentNavigation(
+        Func<int, Task<AudioPreviewDocument?>>? loadDocumentAsync,
+        int documentCount,
+        IReadOnlyList<string>? documentNames = null)
+    {
+        int targetCount = Math.Max(1, documentCount);
+        if (targetCount <= _documentCount)
+        {
+            RefreshDocumentText();
+            UpdateNavigationState();
+            return;
+        }
+
+        _loadDocumentAsync = loadDocumentAsync;
+        int oldCount = _documentCount;
+        _documentCount = targetCount;
+        _trackItems.AddRange(BuildTrackItems(documentNames, oldCount, _documentCount));
+
+        RefreshDocumentText();
+        UpdateTrackListVisibility();
+        UpdateNavigationState();
+        UpdateSelectedTrackListItem(scrollIntoView: false);
     }
 
     private void AudioPreviewWindow_Loaded(object sender, RoutedEventArgs e)
@@ -420,13 +507,8 @@ public partial class AudioPreviewWindow : Window
         AudioPlayer.Source = new Uri(document.AudioPath, UriKind.Absolute);
         AudioPlayer.Volume = NormalizeVolume(VolumeSlider.Value);
 
-        string? documentInfo = HasDocumentNavigation ? $"{_documentIndex + 1:N0} / {_documentCount:N0}" : null;
-        PreviewInfoText.Text = CombineInfo(documentInfo, document.AudioInfo) ?? string.Empty;
+        RefreshDocumentText();
         UpdateInfoBarVisibility();
-
-        Title = HasDocumentNavigation
-            ? $"{_documentIndex + 1:N0} / {_documentCount:N0} - {document.AudioName} - Audio Preview"
-            : $"{document.AudioName} - Audio Preview";
 
         UpdateNavigationState();
         UpdateSelectedTrackListItem();
@@ -520,22 +602,50 @@ public partial class AudioPreviewWindow : Window
 
     private bool HasDocumentNavigation => _loadDocumentAsync is not null && _documentCount > 1;
 
+    private void RefreshDocumentText()
+    {
+        if (_document is null)
+        {
+            return;
+        }
+
+        string? documentInfo = HasDocumentNavigation ? $"{_documentIndex + 1:N0} / {_documentCount:N0}" : null;
+        PreviewInfoText.Text = CombineInfo(documentInfo, _document.AudioInfo) ?? string.Empty;
+        Title = HasDocumentNavigation
+            ? $"{_documentIndex + 1:N0} / {_documentCount:N0} - {_document.AudioName} - Audio Preview"
+            : $"{_document.AudioName} - Audio Preview";
+    }
+
     private static IReadOnlyList<AudioPreviewTrackItem> BuildTrackItems(IReadOnlyList<string>? documentNames, int documentCount)
     {
-        var items = new List<AudioPreviewTrackItem>(Math.Max(1, documentCount));
-        for (int index = 0; index < documentCount; index++)
+        return BuildTrackItems(documentNames, 0, documentCount);
+    }
+
+    private static IReadOnlyList<AudioPreviewTrackItem> BuildTrackItems(
+        IReadOnlyList<string>? documentNames,
+        int startIndex,
+        int endIndex)
+    {
+        var items = new List<AudioPreviewTrackItem>(Math.Max(0, endIndex - startIndex));
+        for (int index = startIndex; index < endIndex; index++)
         {
-            string title = documentNames is not null &&
-                           index < documentNames.Count &&
-                           !string.IsNullOrWhiteSpace(documentNames[index])
-                ? documentNames[index]
-                : $"Track {index + 1:N0}";
-            items.Add(new AudioPreviewTrackItem(
-                (index + 1).ToString("N0", CultureInfo.CurrentCulture),
-                title));
+            items.Add(BuildTrackItem(index, documentNames));
         }
 
         return items;
+    }
+
+    private static AudioPreviewTrackItem BuildTrackItem(int index, IReadOnlyList<string>? documentNames)
+    {
+        string title = documentNames is not null &&
+                       index >= 0 &&
+                       index < documentNames.Count &&
+                       !string.IsNullOrWhiteSpace(documentNames[index])
+            ? documentNames[index]
+            : $"Track {index + 1:N0}";
+        return new AudioPreviewTrackItem(
+            (index + 1).ToString("N0", CultureInfo.CurrentCulture),
+            title);
     }
 
     private void UpdateTrackListVisibility()
@@ -544,6 +654,7 @@ public partial class AudioPreviewWindow : Window
         TrackListPanel.Visibility = showTrackList ? Visibility.Visible : Visibility.Collapsed;
         TrackListColumn.Width = showTrackList ? new GridLength(272) : new GridLength(0);
         TrackCountText.Text = showTrackList ? _documentCount.ToString("N0", CultureInfo.CurrentCulture) : string.Empty;
+        TrackLoadingPanel.Visibility = showTrackList && _isNavigationLoading ? Visibility.Visible : Visibility.Collapsed;
         if (showTrackList)
         {
             MinWidth = Math.Max(MinWidth, 940);
@@ -553,7 +664,7 @@ public partial class AudioPreviewWindow : Window
         }
     }
 
-    private void UpdateSelectedTrackListItem()
+    private void UpdateSelectedTrackListItem(bool scrollIntoView = true)
     {
         if (!HasDocumentNavigation || _trackItems.Count == 0)
         {
@@ -564,7 +675,7 @@ public partial class AudioPreviewWindow : Window
         try
         {
             TrackListBox.SelectedIndex = Math.Clamp(_documentIndex, 0, _trackItems.Count - 1);
-            if (TrackListBox.SelectedItem is not null)
+            if (scrollIntoView && TrackListBox.SelectedItem is not null)
             {
                 TrackListBox.ScrollIntoView(TrackListBox.SelectedItem);
             }

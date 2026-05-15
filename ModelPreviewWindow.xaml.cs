@@ -41,13 +41,14 @@ public partial class ModelPreviewWindow : Window
         MaxWidth = Math.Max(MinWidth, workArea.Width - 80);
         MaxHeight = Math.Max(MinHeight, workArea.Height - 80);
 
+        LithTechModelDocument renderDocument = LithTechThumbnailGeometryReducer.ReduceForInteractivePreview(document);
         ModelViewport.Camera = _camera;
-        BuildScene(document, textureResolver);
+        BuildScene(renderDocument, textureResolver);
 
         ResetCameraState();
         UpdateCamera();
 
-        PreviewInfoText.Text = modelInfo ?? FormatDocumentInfo(document);
+        PreviewInfoText.Text = FormatDisplayInfo(document, renderDocument, modelInfo);
         Title = $"{fileName} - {document.Name}";
     }
 
@@ -354,6 +355,23 @@ public partial class ModelPreviewWindow : Window
     private static string FormatDocumentInfo(LithTechModelDocument document)
     {
         return $"{document.StorageDescription} | {document.Meshes.Count:N0} mesh | {document.VertexCount:N0} vertices | {document.TriangleCount:N0} triangles";
+    }
+
+    private static string FormatDisplayInfo(
+        LithTechModelDocument originalDocument,
+        LithTechModelDocument renderDocument,
+        string? modelInfo)
+    {
+        string info = modelInfo ?? FormatDocumentInfo(originalDocument);
+        if (ReferenceEquals(originalDocument, renderDocument) ||
+            originalDocument.Meshes.Count == renderDocument.Meshes.Count &&
+            originalDocument.VertexCount == renderDocument.VertexCount &&
+            originalDocument.TriangleCount == renderDocument.TriangleCount)
+        {
+            return info;
+        }
+
+        return $"{info} | rendering {renderDocument.Meshes.Count:N0} mesh / {renderDocument.VertexCount:N0} vertices / {renderDocument.TriangleCount:N0} triangles";
     }
 
 }

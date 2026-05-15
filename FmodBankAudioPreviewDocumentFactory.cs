@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 
 namespace CFRezManager;
 
@@ -9,9 +11,15 @@ internal sealed record FmodBankAudioSource(
     IReadOnlyList<FmodBankFsbBlock> FsbBlocks,
     bool Compressed,
     int SourceByteCount,
-    int DecodedByteCount)
+    int DecodedByteCount,
+    bool Partial = false,
+    int? StreamCountLimit = null)
 {
-    public int StreamCount => FsbBlocks.Sum(block => block.StreamCount > int.MaxValue ? int.MaxValue : (int)block.StreamCount);
+    public int TotalStreamCount => FsbBlocks.Sum(block => block.StreamCount > int.MaxValue ? int.MaxValue : (int)block.StreamCount);
+
+    public int StreamCount => StreamCountLimit is > 0
+        ? Math.Min(StreamCountLimit.Value, TotalStreamCount)
+        : TotalStreamCount;
 
     public IReadOnlyList<string> GetStreamNames()
     {
@@ -27,6 +35,11 @@ internal sealed record FmodBankAudioSource(
             int streamCount = (int)block.StreamCount;
             for (int localIndex = 0; localIndex < streamCount; localIndex++)
             {
+                if (names.Count >= totalStreams)
+                {
+                    return names;
+                }
+
                 string name = localIndex < block.SampleNames.Count
                     ? block.SampleNames[localIndex]
                     : string.Empty;
@@ -42,6 +55,8 @@ internal sealed record FmodBankAudioSource(
 
 internal static class FmodBankAudioPreviewDocumentFactory
 {
+    private const int FsbHeaderLength = 0x3C;
+    private const int SmallCompleteFsbBlockBytes = 16 * 1024 * 1024;
     private const int VgmstreamTimeoutMilliseconds = 120_000;
     private static string? _cachedExecutablePath;
     private static bool _cachedExecutableResolved;
@@ -68,7 +83,58 @@ internal static class FmodBankAudioPreviewDocumentFactory
             return false;
         }
 
-        IReadOnlyList<FmodBankFsbBlock> fsbBlocks = FmodBankDecoder.ExtractFsbBlocks(bankData);
+        return TryCreateSourceFromPreparedData(
+            fileName,
+            bankData,
+            compressed,
+            data.Length,
+            checked((int)Math.Min(decodedBytes, int.MaxValue)),
+            partial: false,
+            out source,
+            out errorMessage);
+    }
+
+    public static bool TryCreateSourceFromPreparedData(
+        string fileName,
+        byte[] bankData,
+        bool compressed,
+        int sourceByteCount,
+        int decodedByteCount,
+        bool partial,
+        out FmodBankAudioSource? source,
+        out string? errorMessage)
+    {
+        return TryCreateSourceFromPreparedData(
+            fileName,
+            bankData,
+            bankData.Length,
+            compressed,
+            sourceByteCount,
+            decodedByteCount,
+            partial,
+            out source,
+            out errorMessage);
+    }
+
+    public static bool TryCreateSourceFromPreparedData(
+        string fileName,
+        byte[] bankData,
+        int bankDataLength,
+        bool compressed,
+        int sourceByteCount,
+        int decodedByteCount,
+        bool partial,
+        out FmodBankAudioSource? source,
+        out string? errorMessage)
+    {
+        source = null;
+        errorMessage = null;
+        bankDataLength = Math.Clamp(bankDataLength, 0, bankData.Length);
+
+        IReadOnlyList<FmodBankFsbBlock> fsbBlocks = FmodBankDecoder.ExtractFsbBlocks(
+            bankData,
+            bankDataLength,
+            includeMetadataOnlyBlocks: true);
         if (fsbBlocks.Count == 0 || !fsbBlocks.Any(block => block.StreamCount > 0))
         {
             errorMessage = "BANK does not contain playable FSB5 streams.";
@@ -80,8 +146,9 @@ internal static class FmodBankAudioPreviewDocumentFactory
             bankData,
             fsbBlocks,
             compressed,
-            data.Length,
-            checked((int)Math.Min(decodedBytes, int.MaxValue)));
+            sourceByteCount,
+            Math.Min(decodedByteCount, bankDataLength),
+            partial);
         return true;
     }
 
@@ -124,6 +191,29 @@ internal static class FmodBankAudioPreviewDocumentFactory
         }
 
         return false;
+    }
+
+    public static bool TryGetRequiredDecodedByteCount(
+        FmodBankAudioSource source,
+        int streamIndex,
+        out int requiredByteCount)
+    {
+        requiredByteCount = 0;
+        if (!TryResolveStream(source, streamIndex, out FmodBankFsbBlock? block, out int localStreamIndex))
+        {
+            return false;
+        }
+
+        int sampleIndex = localStreamIndex - 1;
+        if (sampleIndex >= 0 && sampleIndex < block.Samples.Count)
+        {
+            FmodBankFsbSample sample = block.Samples[sampleIndex];
+            requiredByteCount = checked(block.Offset + block.MetadataLength + sample.DataOffset + sample.DataLength);
+            return requiredByteCount > 0;
+        }
+
+        requiredByteCount = checked(block.Offset + block.Length);
+        return requiredByteCount > 0;
     }
 
     public static bool TryCreateThumbnailAudioData(
@@ -237,9 +327,21 @@ internal static class FmodBankAudioPreviewDocumentFactory
 
         try
         {
-            byte[] fsbData = source.BankData.AsSpan(block.Offset, block.Length).ToArray();
+            if (!TryCreateFsbDataForStream(
+                    source,
+                    block,
+                    localStreamIndex,
+                    out byte[]? fsbData,
+                    out int fsbStreamIndex,
+                    out string resolvedName,
+                    out errorMessage) ||
+                fsbData is null)
+            {
+                return false;
+            }
+
             Fmod5Sharp.FmodTypes.FmodSoundBank soundBank = Fmod5Sharp.FsbLoader.LoadFsbFromByteArray(fsbData);
-            int sampleIndex = localStreamIndex - 1;
+            int sampleIndex = fsbStreamIndex - 1;
             if (sampleIndex < 0 || sampleIndex >= soundBank.Samples.Count)
             {
                 errorMessage = $"Fmod5Sharp did not expose BANK stream {streamIndex + 1:N0}.";
@@ -256,7 +358,7 @@ internal static class FmodBankAudioPreviewDocumentFactory
             }
 
             streamName = string.IsNullOrWhiteSpace(sample.Name)
-                ? ResolveStreamName(block, localStreamIndex)
+                ? resolvedName
                 : sample.Name;
             return true;
         }
@@ -283,18 +385,28 @@ internal static class FmodBankAudioPreviewDocumentFactory
         string wavPath = AudioPreviewDocumentFactory.CreateTemporaryAudioPath("wav");
         try
         {
-            File.WriteAllBytes(fsbPath, source.BankData.AsSpan(block.Offset, block.Length).ToArray());
-            if (!RunVgmstream(vgmstreamPath, fsbPath, wavPath, localStreamIndex, out errorMessage))
+            if (!TryCreateFsbDataForStream(
+                    source,
+                    block,
+                    localStreamIndex,
+                    out byte[]? fsbData,
+                    out int fsbStreamIndex,
+                    out string streamName,
+                    out errorMessage) ||
+                fsbData is null)
+            {
+                return false;
+            }
+
+            File.WriteAllBytes(fsbPath, fsbData);
+            if (!RunVgmstream(vgmstreamPath, fsbPath, wavPath, fsbStreamIndex, out errorMessage))
             {
                 AudioPreviewDocumentFactory.TryDeleteFile(fsbPath);
                 AudioPreviewDocumentFactory.TryDeleteFile(wavPath);
                 return false;
             }
 
-            string streamName = ResolveStreamName(block, localStreamIndex);
-            string audioName = string.IsNullOrWhiteSpace(streamName)
-                ? $"{source.FileName} [{streamIndex + 1:N0}/{source.StreamCount:N0}]"
-                : $"{source.FileName} [{streamIndex + 1:N0}/{source.StreamCount:N0}] {streamName}";
+            string audioName = BuildAudioName(source, streamIndex, streamName);
             string info = $"{BuildStorageInfo(source)} - FSB5 stream {streamIndex + 1:N0}/{source.StreamCount:N0}, block #{block.Index:D2}, vgmstream fallback";
 
             document = new AudioPreviewDocument(audioName, wavPath, info, [fsbPath, wavPath], "BANK");
@@ -309,11 +421,103 @@ internal static class FmodBankAudioPreviewDocumentFactory
         }
     }
 
+    private static bool TryCreateFsbDataForStream(
+        FmodBankAudioSource source,
+        FmodBankFsbBlock block,
+        int localStreamIndex,
+        out byte[]? fsbData,
+        out int fsbStreamIndex,
+        out string streamName,
+        out string? errorMessage)
+    {
+        fsbData = null;
+        fsbStreamIndex = localStreamIndex;
+        streamName = ResolveStreamName(block, localStreamIndex);
+        errorMessage = null;
+
+        if (block.Offset + (long)block.Length <= source.DecodedByteCount &&
+            block.Length <= SmallCompleteFsbBlockBytes)
+        {
+            fsbData = source.BankData.AsSpan(block.Offset, block.Length).ToArray();
+            fsbStreamIndex = localStreamIndex;
+            return true;
+        }
+
+        int sampleIndex = localStreamIndex - 1;
+        if (sampleIndex >= 0 && sampleIndex < block.Samples.Count)
+        {
+            FmodBankFsbSample sample = block.Samples[sampleIndex];
+            long sampleHeaderStart = block.Offset + (long)FsbHeaderLength + sample.HeaderOffset;
+            long sampleDataStart = block.Offset + (long)block.MetadataLength + sample.DataOffset;
+            long sampleHeaderEnd = sampleHeaderStart + sample.HeaderLength;
+            long sampleDataEnd = sampleDataStart + sample.DataLength;
+            if (sampleHeaderEnd <= source.DecodedByteCount &&
+                sampleDataEnd <= source.DecodedByteCount)
+            {
+                fsbData = BuildSingleSampleFsb(source.BankData, block, sample, streamName);
+                fsbStreamIndex = 1;
+                return true;
+            }
+        }
+
+        if (block.Offset + (long)block.Length <= source.DecodedByteCount)
+        {
+            fsbData = source.BankData.AsSpan(block.Offset, block.Length).ToArray();
+            fsbStreamIndex = localStreamIndex;
+            return true;
+        }
+
+        errorMessage = $"BANK stream data is still loading.";
+        return false;
+    }
+
+    private static byte[] BuildSingleSampleFsb(
+        byte[] bankData,
+        FmodBankFsbBlock block,
+        FmodBankFsbSample sample,
+        string streamName)
+    {
+        byte[] nameBytes = string.IsNullOrWhiteSpace(streamName)
+            ? []
+            : Encoding.UTF8.GetBytes(streamName);
+        int nameTableSize = nameBytes.Length == 0 ? 0 : sizeof(uint) + nameBytes.Length + 1;
+        int fsbLength = checked(FsbHeaderLength + sample.HeaderLength + nameTableSize + sample.DataLength);
+        byte[] fsbData = new byte[fsbLength];
+
+        bankData.AsSpan(block.Offset, FsbHeaderLength).CopyTo(fsbData);
+        BinaryPrimitives.WriteUInt32LittleEndian(fsbData.AsSpan(8, sizeof(uint)), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(fsbData.AsSpan(12, sizeof(uint)), checked((uint)sample.HeaderLength));
+        BinaryPrimitives.WriteUInt32LittleEndian(fsbData.AsSpan(16, sizeof(uint)), checked((uint)nameTableSize));
+        BinaryPrimitives.WriteUInt32LittleEndian(fsbData.AsSpan(20, sizeof(uint)), checked((uint)sample.DataLength));
+
+        int headerSourceOffset = block.Offset + FsbHeaderLength + sample.HeaderOffset;
+        Span<byte> sampleHeader = fsbData.AsSpan(FsbHeaderLength, sample.HeaderLength);
+        bankData.AsSpan(headerSourceOffset, sample.HeaderLength).CopyTo(sampleHeader);
+        uint first = BinaryPrimitives.ReadUInt32LittleEndian(sampleHeader[..sizeof(uint)]);
+        BinaryPrimitives.WriteUInt32LittleEndian(sampleHeader[..sizeof(uint)], first & 0x3F);
+
+        int writeOffset = FsbHeaderLength + sample.HeaderLength;
+        if (nameTableSize > 0)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(fsbData.AsSpan(writeOffset, sizeof(uint)), sizeof(uint));
+            writeOffset += sizeof(uint);
+            nameBytes.CopyTo(fsbData.AsSpan(writeOffset, nameBytes.Length));
+            writeOffset += nameBytes.Length + 1;
+        }
+
+        int sampleDataSourceOffset = block.Offset + block.MetadataLength + sample.DataOffset;
+        bankData.AsSpan(sampleDataSourceOffset, sample.DataLength).CopyTo(fsbData.AsSpan(writeOffset, sample.DataLength));
+        return fsbData;
+    }
+
     private static string BuildAudioName(FmodBankAudioSource source, int streamIndex, string streamName)
     {
+        string streamCountText = source.Partial
+            ? $"{source.StreamCount:N0}+"
+            : source.StreamCount.ToString("N0", System.Globalization.CultureInfo.CurrentCulture);
         return string.IsNullOrWhiteSpace(streamName)
-            ? $"{source.FileName} [{streamIndex + 1:N0}/{source.StreamCount:N0}]"
-            : $"{source.FileName} [{streamIndex + 1:N0}/{source.StreamCount:N0}] {streamName}";
+            ? $"{source.FileName} [{streamIndex + 1:N0}/{streamCountText}]"
+            : $"{source.FileName} [{streamIndex + 1:N0}/{streamCountText}] {streamName}";
     }
 
     private static string BuildRebuiltFileName(string audioName, string? extension)
@@ -327,8 +531,12 @@ internal static class FmodBankAudioPreviewDocumentFactory
     private static string BuildStorageInfo(FmodBankAudioSource source)
     {
         return source.Compressed
-            ? $"LZMA-compressed FMOD bank, {source.SourceByteCount:N0} bytes -> {source.DecodedByteCount:N0} bytes"
-            : $"FMOD bank, {source.SourceByteCount:N0} bytes";
+            ? source.Partial
+                ? $"LZMA-compressed FMOD bank preview prefix, {source.SourceByteCount:N0} bytes -> {source.DecodedByteCount:N0} bytes"
+                : $"LZMA-compressed FMOD bank, {source.SourceByteCount:N0} bytes -> {source.DecodedByteCount:N0} bytes"
+            : source.Partial
+                ? $"FMOD bank preview prefix, {source.DecodedByteCount:N0} decoded bytes"
+                : $"FMOD bank, {source.SourceByteCount:N0} bytes";
     }
 
     private static bool TryResolveStream(

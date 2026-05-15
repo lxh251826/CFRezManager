@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v1.1.0
+git tag v1.1.1
 git push origin main
-git push origin v1.1.0
+git push origin v1.1.1
 ```
 
 ## Browse REZ Archives
@@ -58,7 +58,7 @@ Use the bottom-right `Size` slider to switch views: smaller values use a list vi
 - WAV, OGG, and MP3 audio files support waveform thumbnails and double-click audio preview.
 - Audio preview supports a track list for quick switching, previous/next navigation across the current audio list, playback controls, seeking, volume adjustment, and a PotPlayer-style spectrum display rendered with a lightweight bitmap buffer.
 - OGG files are decoded through the built-in Vorbis path before playback so files that WPF cannot open directly can still preview.
-- FMOD `.bank` files support LZMA wrapper decoding, RIFF/FEV metadata previews, embedded FSB5 block listing, audio thumbnails, player preview through the built-in Fmod5Sharp path with `vgmstream-cli.exe` fallback, a track list for switching internal streams, and a right-click `Decode BANK...` export that writes the decoded bank plus raw FSB5 blocks.
+- FMOD `.bank` files support LZMA wrapper decoding, RIFF/FEV metadata previews, embedded FSB5 block listing, audio thumbnails, player preview through the built-in Fmod5Sharp path with `vgmstream-cli.exe` fallback, a track list for switching internal streams, and a right-click `Decode BANK...` export that writes the decoded bank plus raw FSB5 blocks. Large banks load the first playable stream quickly, then continue appending streams in the background.
 - Audio and resource thumbnails show storage/decode badges such as `RAW`, `LZMA`, `DXT`, and `TXT`.
 - SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
 - LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
@@ -67,6 +67,7 @@ Use the bottom-right `Size` slider to switch views: smaller values use a list vi
 - DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open the model preview window. CrossFire object DAT files decode into text previews for `Zoneman`, `EnvSound`, `MovePath`, and `CameraAnimation`.
 - CFT, FCF, FXF, FXO, NAV, APF, REF, TXT, and selected WAVE resources can decode into readable text or metadata previews, including common LZMA-compressed forms.
 - LZMA-compressed resources show an `LZMA` badge in the thumbnail corner.
+- Generated thumbnails are cached under the current Windows user profile. Reopening the same loose files or unchanged REZ entries can reuse the cached PNG instead of decoding and rendering the resource again.
 
 ## Model Preview Controls
 
@@ -119,6 +120,15 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed file and directory names currently must be ASCII.
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
+
+## v1.1.1 Changes
+
+- Optimized large FMOD `.bank` previews: the player can open after the first stream is ready, while the remaining FSB5 streams are appended progressively in the background.
+- Added a faster BANK LZMA prefix decode path for huge compressed banks, reducing the wait before audio preview appears.
+- Added model-thumbnail geometry reduction so very large DAT/LTB/LTA/LTC model thumbnails render with a bounded mesh size instead of drawing every triangle.
+- Added disk caching for generated thumbnails, keyed by source file/archive metadata, so unchanged resources can reuse previous preview images across folder rescans.
+- Improved audio track list styling, loading state display, click-to-play behavior, and scrollbar colors for the dark player UI.
+- Bumped the application version to `v1.1.1`.
 
 ## v1.1.0 Changes
 
@@ -177,13 +187,16 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`: Standalone audio preview window and spectrum renderer.
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`: Audio spectrum analysis and OGG-to-WAV playback conversion.
 - `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`: FMOD BANK decode, export, and embedded FSB5 audio preview.
+- `BankLzmaAloneDecoder.cs`: Fast LZMA prefix decoding path used by large BANK previews.
 - `ResourceTextDecoder.cs`: Decodes additional text-like CrossFire resource formats.
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
 - `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`: LithTech model, LTB/LTA world parsing, texture lookup, and rendering.
+- `LithTechThumbnailGeometryReducer.cs`: Reduces large model/map meshes for faster thumbnails and smoother preview startup.
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.
+- `ThumbnailDiskCache.cs`: Stores generated thumbnail PNGs so unchanged files can be shown without repeat decoding.
 - `VirtualizingWrapPanel.cs`: Virtualized icon grid layout.
 
 ## Support The Project

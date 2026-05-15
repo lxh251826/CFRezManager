@@ -6,11 +6,10 @@ using GrindCoreSharpCompress::SharpCompress.Compressors.LZMA;
 
 namespace CFRezManager;
 
-internal static class LzmaAloneDecoder
+internal static class BankLzmaAloneDecoder
 {
     private const int HeaderLength = 13;
     private const int PropertiesLength = 5;
-    public const long DefaultMaxDecodedBytes = 128 * 1024 * 1024;
 
     public static bool IsCompressed(byte[] data)
     {
@@ -33,64 +32,9 @@ internal static class LzmaAloneDecoder
         return decodedBytes >= 0;
     }
 
-    public static byte[]? TryPrepareData(byte[] data, long maxDecodedBytes = DefaultMaxDecodedBytes)
+    public static byte[]? TryPrepareData(byte[] data, long maxDecodedBytes)
     {
         return IsCompressed(data) ? TryDecompress(data, maxDecodedBytes) : data;
-    }
-
-    public static byte[]? TryDecompressPrefix(byte[] data, int maxPrefixBytes)
-    {
-        if (maxPrefixBytes <= 0 || !TryGetDecodedByteCount(data, out long decodedBytes))
-        {
-            return null;
-        }
-
-        if (decodedBytes <= maxPrefixBytes)
-        {
-            return TryDecompress(data, maxPrefixBytes);
-        }
-
-        try
-        {
-            byte[] properties = data.AsSpan(0, PropertiesLength).ToArray();
-            using var compressed = new MemoryStream(data, HeaderLength, data.Length - HeaderLength, writable: false);
-            using LzmaStream lzma = LzmaStream.Create(
-                properties,
-                compressed,
-                data.Length - HeaderLength,
-                decodedBytes,
-                leaveOpen: false);
-
-            byte[] buffer = new byte[maxPrefixBytes];
-            int total = 0;
-            while (total < buffer.Length)
-            {
-                int read = lzma.Read(buffer, total, buffer.Length - total);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                total += read;
-            }
-
-            if (total == 0)
-            {
-                return null;
-            }
-
-            if (total == buffer.Length)
-            {
-                return buffer;
-            }
-
-            Array.Resize(ref buffer, total);
-            return buffer;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     public static byte[]? TryDecompressPrefix(Stream source, long compressedByteCount, int maxPrefixBytes)
@@ -104,12 +48,7 @@ internal static class LzmaAloneDecoder
         {
             byte[] header = new byte[HeaderLength];
             source.ReadExactly(header);
-            if (!TryGetDecodedByteCount(header, out long decodedBytes))
-            {
-                return null;
-            }
-
-            if (decodedBytes <= 0)
+            if (!TryGetDecodedByteCount(header, out long decodedBytes) || decodedBytes <= 0)
             {
                 return null;
             }
