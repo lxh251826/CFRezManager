@@ -1,6 +1,7 @@
 using System.IO;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -279,6 +280,15 @@ public partial class MainWindow : Window
             ["ExtractSelectedItems"] = ("导出 {0:N0} 个选中项...", "Extract {0:N0} Selected Items..."),
             ["ExtractSelectedDefault"] = ("导出选中项...", "Extract Selected..."),
             ["OpenPreview"] = ("打开预览...", "Open Preview..."),
+            ["LocateFile"] = ("\u5b9a\u4f4d\u5230\u6587\u4ef6", "Locate File"),
+            ["LocatedItem"] = ("\u5df2\u5b9a\u4f4d\u5230: {0}", "Located: {0}"),
+            ["LocateFileFailed"] = ("\u5b9a\u4f4d\u5230\u6587\u4ef6\u5931\u8d25", "Locate file failed"),
+            ["CopyName"] = ("\u590d\u5236\u540d\u79f0", "Copy Name"),
+            ["CopySelectedNames"] = ("\u590d\u5236 {0:N0} \u4e2a\u540d\u79f0", "Copy {0:N0} Names"),
+            ["CopiedName"] = ("\u5df2\u590d\u5236\u540d\u79f0: {0}", "Copied name: {0}"),
+            ["CopiedNames"] = ("\u5df2\u590d\u5236 {0:N0} \u4e2a\u540d\u79f0", "Copied {0:N0} names"),
+            ["CopyNameFailed"] = ("\u590d\u5236\u540d\u79f0\u5931\u8d25", "Copy name failed"),
+            ["CopyNameClipboardBusy"] = ("\u526a\u8d34\u677f\u6b63\u88ab\u5176\u4ed6\u7a0b\u5e8f\u5360\u7528\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002", "Clipboard is busy. Please try again."),
             ["DecodeBank"] = ("\u89e3\u7801 BANK...", "Decode BANK..."),
             ["OpenAudioPreview"] = ("播放音频...", "Play Audio..."),
             ["OpenImagePreview"] = ("查看图片...", "View Image..."),
@@ -410,6 +420,201 @@ public partial class MainWindow : Window
 
         string label = selectedItems.Count == 1 ? selectedItems[0].Name : FormatText("SelectedItemsLabel", selectedItems.Count);
         await ExtractItemsAsync(selectedItems, FormatText("PreparingItem", label), preserveOutputRelativePaths: false);
+    }
+
+    private async void CopyNameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        if (selectedItems.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (selectedItems.Count == 1)
+            {
+                await SetClipboardTextAsync(selectedItems[0].Name);
+                SetStatus("CopiedName", selectedItems[0].Name);
+                return;
+            }
+
+            string names = string.Join(Environment.NewLine, selectedItems.Select(item => item.Name));
+            await SetClipboardTextAsync(names);
+            SetStatus("CopiedNames", selectedItems.Count);
+        }
+        catch (Exception ex)
+        {
+            ShowError("CopyNameFailed", ex);
+        }
+    }
+
+    private async void LocateFileMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        if (selectedItems.Count != 1)
+        {
+            return;
+        }
+
+        try
+        {
+            await LocateExplorerItemAsync(selectedItems[0]);
+        }
+        catch (Exception ex)
+        {
+            ShowError("LocateFileFailed", ex);
+        }
+    }
+
+    private async Task LocateExplorerItemAsync(ExplorerItem item)
+    {
+        if (item.Parent is not { } parent)
+        {
+            return;
+        }
+
+        await ShowFolderAsync(parent);
+        if (!ReferenceEquals(_currentItem, parent))
+        {
+            return;
+        }
+
+        ContentsList.SelectedItems.Clear();
+        ContentsList.SelectedItem = item;
+        ContentsList.ScrollIntoView(item);
+        await Dispatcher.InvokeAsync(
+            () =>
+            {
+                ContentsList.UpdateLayout();
+                if (ContentsList.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container)
+                {
+                    container.Focus();
+                }
+                else
+                {
+                    ContentsList.Focus();
+                }
+            },
+            DispatcherPriority.Background);
+        SetStatus("LocatedItem", item.Name);
+    }
+
+    private async Task SetClipboardTextAsync(string text)
+    {
+        const int maxAttempts = 24;
+        int delayMilliseconds = 25;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (TrySetClipboardText(text))
+            {
+                return;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                await Task.Delay(delayMilliseconds);
+                delayMilliseconds = Math.Min(delayMilliseconds + 25, 250);
+            }
+        }
+
+        throw new InvalidOperationException(T("CopyNameClipboardBusy"));
+    }
+
+    private bool TrySetClipboardText(string text)
+    {
+        byte[] bytes = System.Text.Encoding.Unicode.GetBytes(text + '\0');
+        IntPtr memory = NativeMethods.GlobalAlloc(NativeMethods.GmemMoveable, new UIntPtr(checked((uint)bytes.Length)));
+        if (memory == IntPtr.Zero)
+        {
+            throw new InvalidOperationException(Marshal.GetLastWin32Error().ToString(CultureInfo.InvariantCulture));
+        }
+
+        bool clipboardOpened = false;
+        try
+        {
+            IntPtr lockedMemory = NativeMethods.GlobalLock(memory);
+            if (lockedMemory == IntPtr.Zero)
+            {
+                throw new InvalidOperationException(Marshal.GetLastWin32Error().ToString(CultureInfo.InvariantCulture));
+            }
+
+            try
+            {
+                Marshal.Copy(bytes, 0, lockedMemory, bytes.Length);
+            }
+            finally
+            {
+                _ = NativeMethods.GlobalUnlock(memory);
+            }
+
+            IntPtr owner = new WindowInteropHelper(this).Handle;
+            if (!NativeMethods.OpenClipboard(owner))
+            {
+                return false;
+            }
+
+            clipboardOpened = true;
+            if (!NativeMethods.EmptyClipboard())
+            {
+                return false;
+            }
+
+            if (NativeMethods.SetClipboardData(NativeMethods.CfUnicodeText, memory) == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            memory = IntPtr.Zero;
+            return true;
+        }
+        finally
+        {
+            if (clipboardOpened)
+            {
+                _ = NativeMethods.CloseClipboard();
+            }
+
+            if (memory != IntPtr.Zero)
+            {
+                _ = NativeMethods.GlobalFree(memory);
+            }
+        }
+    }
+
+    private static class NativeMethods
+    {
+        public const uint CfUnicodeText = 13;
+        public const uint GmemMoveable = 0x0002;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EmptyClipboard();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CloseClipboard();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr GlobalLock(IntPtr hMem);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GlobalUnlock(IntPtr hMem);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr GlobalFree(IntPtr hMem);
     }
 
     private async void DecodeBankMenuItem_Click(object sender, RoutedEventArgs e)
@@ -837,7 +1042,7 @@ public partial class MainWindow : Window
 
         if (compressed)
         {
-            if (!BankLzmaAloneDecoder.TryGetDecodedByteCount(header, out long decodedBytes) ||
+            if (!LzmaAloneDecoder.TryGetDecodedByteCount(header, out long decodedBytes) ||
                 decodedBytes <= 0 ||
                 decodedBytes > FmodBankDecoder.MaxDecodedBytes ||
                 decodedBytes > int.MaxValue)
@@ -846,7 +1051,7 @@ public partial class MainWindow : Window
                 return null;
             }
 
-            Stream? decodedStream = BankLzmaAloneDecoder.TryCreateDecompressStream(sourceStream, fileByteCount, out long streamDecodedBytes);
+            Stream? decodedStream = LzmaAloneDecoder.TryCreateDecompressStream(sourceStream, fileByteCount, out long streamDecodedBytes);
             if (decodedStream is null || streamDecodedBytes != decodedBytes)
             {
                 decodedStream?.Dispose();
@@ -1969,6 +2174,12 @@ public partial class MainWindow : Window
         ExtractSelectedMenuItem.Header = selectedItems.Count == 1
             ? T("ExtractThisItem")
             : FormatText("ExtractSelectedItems", selectedItems.Count);
+        LocateFileMenuItem.IsEnabled = !_isBusy && selectedItems.Count == 1 && selectedItems[0].Parent is not null;
+        LocateFileMenuItem.Header = T("LocateFile");
+        CopyNameMenuItem.IsEnabled = selectedItems.Count > 0;
+        CopyNameMenuItem.Header = selectedItems.Count <= 1
+            ? T("CopyName")
+            : FormatText("CopySelectedNames", selectedItems.Count);
     }
 
     private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2377,6 +2588,8 @@ public partial class MainWindow : Window
         EmptyStateText.Text = T("EmptyFolder");
         OpenPreviewMenuItem.Header = T("OpenPreview");
         DecodeBankMenuItem.Header = T("DecodeBank");
+        LocateFileMenuItem.Header = T("LocateFile");
+        CopyNameMenuItem.Header = T("CopyName");
         ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
         SearchLabelText.Text = T("SearchLabel");
         SearchTextBox.ToolTip = T("SearchTooltip");

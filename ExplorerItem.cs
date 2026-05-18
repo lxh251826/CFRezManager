@@ -1343,7 +1343,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             }
 
             using FileStream source = File.OpenRead(SourcePath);
-            return BankLzmaAloneDecoder.TryDecompressPrefix(source, info.Length, maxDecodedBytes);
+            return LzmaAloneDecoder.TryDecompressPrefix(source, info.Length, maxDecodedBytes);
         }
 
         if (Archive is null ||
@@ -1356,7 +1356,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
         using FileStream archiveSource = File.OpenRead(Archive.FilePath);
         archiveSource.Position = ArchiveFile.DataOffset;
-        return BankLzmaAloneDecoder.TryDecompressPrefix(archiveSource, ArchiveFile.Size, maxDecodedBytes);
+        return LzmaAloneDecoder.TryDecompressPrefix(archiveSource, ArchiveFile.Size, maxDecodedBytes);
     }
 
     private static ImageSource LoadBitmapImage(byte[] data, bool decodeThumbnail)

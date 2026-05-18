@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v1.1.1
+git tag v1.1.2
 git push origin main
-git push origin v1.1.1
+git push origin v1.1.2
 ```
 
 ## Browse REZ Archives
@@ -46,6 +46,8 @@ Use the language selector in the top toolbar to switch between `Chinese` and `En
 The search box builds an in-memory index the first time you type, then filters scanned files, folders, and internal REZ paths quickly. Separate multiple keywords with spaces to require all terms to match.
 
 Use the bottom-right `Size` slider to switch views: smaller values use a list view with path and size details, while larger values return to the tiled icon view. Hover files, folders, loose files, or REZ items to see metadata such as type, path, size, source, MD5, and data offset when available.
+
+After selecting files in search results or a normal folder, use the right-click `Locate File` command to jump to the containing folder and select the target file. Use `Copy Name` to copy one or more selected item names.
 
 ## Preview Support
 
@@ -121,6 +123,13 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
 
+## v1.1.2 Changes
+
+- Added a right-click `Locate File` command that jumps from search results or the current list to the selected item's containing folder and focuses the target file.
+- Added a right-click `Copy Name` command for copying one selected item name or multiple selected item names as separate lines, with retry feedback when the clipboard is busy.
+- Switched BANK previews and compressed-resource prefix reads to the shared `LzmaAloneDecoder`, unifying normal resource and BANK LZMA decode, prefix decode, and streaming decode paths.
+- Updated Chinese and English documentation plus GitHub Release notes, and bumped the application version to `v1.1.2`.
+
 ## v1.1.1 Changes
 
 - Optimized large FMOD `.bank` previews: the player can open after the first stream is ready, while the remaining FSB5 streams are appended progressively in the background.
@@ -187,7 +196,8 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`: Standalone audio preview window and spectrum renderer.
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`: Audio spectrum analysis and OGG-to-WAV playback conversion.
 - `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`: FMOD BANK decode, export, and embedded FSB5 audio preview.
-- `BankLzmaAloneDecoder.cs`: Fast LZMA prefix decoding path used by large BANK previews.
+- `LzmaAloneDecoder.cs`: Shared LZMA decode, prefix decode, and streaming decode path, also used by BANK previews.
+- `BankLzmaAloneDecoder.cs`: Retained legacy BANK LZMA decoder for rollback and comparison.
 - `ResourceTextDecoder.cs`: Decodes additional text-like CrossFire resource formats.
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.

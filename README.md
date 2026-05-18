@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v1.1.1
+git tag v1.1.2
 git push origin main
-git push origin v1.1.1
+git push origin v1.1.2
 ```
 
 ## 浏览 REZ 资源包
@@ -46,6 +46,8 @@ git push origin v1.1.1
 搜索框会在首次输入时建立内存索引，之后可以快速筛选已经扫描到的文件、目录和 REZ 内部路径。多个关键词用空格分隔时，需要全部命中才会显示结果。
 
 右下角 `大小` 滑条可以切换显示方式：较小时使用列表视图并显示路径和大小，较大时切回平铺图标视图。鼠标悬停在文件、目录或 REZ 项目上时，会显示类型、路径、大小、来源、MD5、偏移等信息。
+
+在搜索结果或普通目录里选中文件后，可以通过右键菜单 `定位到文件` 跳回其所在目录并选中该文件；右键 `复制名称` 可复制单个或多个选中项名称。
 
 ## 预览能力
 
@@ -121,6 +123,13 @@ git push origin v1.1.1
 - 重新打包时，文件扩展名需要为 1 到 4 个字符。
 - 从文件夹创建新 REZ 会保留内容和目录结构，但不会复制原包的字节级布局、偏移、时间戳或整包 MD5。
 
+## v1.1.2 更新
+
+- 右键菜单新增 `定位到文件`，可从搜索结果或当前列表跳转到选中项所在目录并聚焦目标文件。
+- 右键菜单新增 `复制名称`，支持复制单个选中项名称，或将多个选中项名称按行复制到剪贴板，并增加剪贴板繁忙重试提示。
+- BANK 预览和压缩资源前缀读取改为复用共享 `LzmaAloneDecoder`，统一普通资源与 BANK 的 LZMA 解码、前缀解码和流式解码路径。
+- 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.2`。
+
 ## v1.1.1 更新
 
 - 优化大型 FMOD `.bank` 预览：首条流准备好后即可打开播放器，剩余 FSB5 音频流会在后台递进追加。
@@ -187,7 +196,8 @@ git push origin v1.1.1
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`：独立音频预览窗口和频谱绘制。
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`：音频频谱分析和 OGG 转 WAV 播放转换。
 - `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`：FMOD BANK 解码、导出和内嵌 FSB5 音频预览。
-- `BankLzmaAloneDecoder.cs`：大型 BANK 预览使用的快速 LZMA 前缀解码路径。
+- `LzmaAloneDecoder.cs`：全局 LZMA 解码、前缀解码和流式解码路径，BANK 预览也复用这一套实现。
+- `BankLzmaAloneDecoder.cs`：保留的旧 BANK LZMA 解码实现，用于回退和对比。
 - `ResourceTextDecoder.cs`：更多文本类 CrossFire 资源解码。
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`：图片和纹理预览解码。
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`：SPR 动态精灵解析和动画帧加载。

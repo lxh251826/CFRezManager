@@ -124,7 +124,7 @@ internal static class FmodBankDecoder
 
     public static bool IsCompressedBank(byte[] data)
     {
-        return BankLzmaAloneDecoder.IsCompressed(data);
+        return LzmaAloneDecoder.IsCompressed(data);
     }
 
     public static bool TryPrepareDecodedData(
@@ -136,7 +136,7 @@ internal static class FmodBankDecoder
     {
         bankData = null;
         errorMessage = null;
-        compressed = BankLzmaAloneDecoder.IsCompressed(data);
+        compressed = LzmaAloneDecoder.IsCompressed(data);
         decodedBytes = data.Length;
 
         if (!compressed)
@@ -145,7 +145,7 @@ internal static class FmodBankDecoder
             return true;
         }
 
-        if (!BankLzmaAloneDecoder.TryGetDecodedByteCount(data, out decodedBytes) ||
+        if (!LzmaAloneDecoder.TryGetDecodedByteCount(data, out decodedBytes) ||
             decodedBytes <= 0 ||
             decodedBytes > MaxDecodedBytes ||
             decodedBytes > int.MaxValue)
@@ -154,7 +154,7 @@ internal static class FmodBankDecoder
             return false;
         }
 
-        bankData = BankLzmaAloneDecoder.TryPrepareData(data, MaxDecodedBytes);
+        bankData = LzmaAloneDecoder.TryPrepareData(data, MaxDecodedBytes);
         if (bankData is null)
         {
             errorMessage = "BANK compression could not be decoded.";

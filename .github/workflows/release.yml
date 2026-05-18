@@ -65,6 +65,13 @@ jobs:
             - 缓存已生成缩略图，重复浏览未变化资源时可以跳过重复解码和渲染。
             - 支持中文和英文界面切换，并记住语言、目录和视图大小。
 
+            ### v1.1.2 更新
+
+            - 右键菜单新增 `定位到文件`，可从搜索结果或当前列表跳转到选中项所在目录并聚焦目标文件。
+            - 右键菜单新增 `复制名称`，支持复制单个选中项名称，或将多个选中项名称按行复制到剪贴板，并增加剪贴板繁忙重试提示。
+            - BANK 预览和压缩资源前缀读取改为复用共享 `LzmaAloneDecoder`，统一普通资源与 BANK 的 LZMA 解码、前缀解码和流式解码路径。
+            - 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.2`。
+
             ### v1.1.1 更新
 
             - 优化大型 FMOD `.bank` 预览：首条流准备好后即可打开播放器，剩余 FSB5 音频流会在后台递进追加。
@@ -105,6 +112,13 @@ jobs:
             - Preview and export FMOD `.bank` files with embedded FSB5 audio playback, thumbnails, a track list, and progressive loading for large banks.
             - Cache generated thumbnails so unchanged resources can skip repeat decoding and rendering.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
+
+            ### v1.1.2 Changes
+
+            - Added a right-click `Locate File` command that jumps from search results or the current list to the selected item's containing folder and focuses the target file.
+            - Added a right-click `Copy Name` command for copying one selected item name or multiple selected item names as separate lines, with retry feedback when the clipboard is busy.
+            - Switched BANK previews and compressed-resource prefix reads to the shared `LzmaAloneDecoder`, unifying normal resource and BANK LZMA decode, prefix decode, and streaming decode paths.
+            - Updated Chinese and English documentation plus GitHub Release notes, and bumped the application version to `v1.1.2`.
 
             ### v1.1.1 Changes
 

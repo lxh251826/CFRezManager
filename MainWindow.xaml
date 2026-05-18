@@ -424,6 +424,12 @@
                                           Header="Decode BANK..."
                                           Click="DecodeBankMenuItem_Click"/>
                                 <Separator x:Name="PreviewMenuSeparator"/>
+                                <MenuItem x:Name="LocateFileMenuItem"
+                                          Header="定位到文件"
+                                          Click="LocateFileMenuItem_Click"/>
+                                <MenuItem x:Name="CopyNameMenuItem"
+                                          Header="Copy Name"
+                                          Click="CopyNameMenuItem_Click"/>
                                 <MenuItem x:Name="ExtractSelectedMenuItem"
                                           Header="导出选中项..."
                                           Click="ExtractSelectedMenuItem_Click"/>
