@@ -423,6 +423,9 @@
                                 <MenuItem x:Name="DecodeBankMenuItem"
                                           Header="Decode BANK..."
                                           Click="DecodeBankMenuItem_Click"/>
+                                <MenuItem x:Name="ExportObjMenuItem"
+                                          Header="Export OBJ..."
+                                          Click="ExportObjMenuItem_Click"/>
                                 <Separator x:Name="PreviewMenuSeparator"/>
                                 <MenuItem x:Name="LocateFileMenuItem"
                                           Header="定位到文件"

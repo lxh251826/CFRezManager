@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v1.1.2
+git tag v1.1.3
 git push origin main
-git push origin v1.1.2
+git push origin v1.1.3
 ```
 
 ## 浏览 REZ 资源包
@@ -62,6 +62,7 @@ git push origin v1.1.2
 - OGG 会通过内置 Vorbis 解码路径转换为临时 WAV 后播放，避免 WPF 直接播放失败。
 - FMOD `.bank` 支持 LZMA 外壳解码、RIFF/FEV 元数据预览、内嵌 FSB5 音频块列表、内置 Fmod5Sharp 播放预览、音频缩略图、播放器曲目清单，以及右键 `解码 BANK...` 导出 decoded bank 和原始 FSB5 块；少数内置解码不支持的流可回退到 `vgmstream-cli.exe`。大型 BANK 会优先加载首条可播放音频，后续流在后台递进追加。
 - 音频和资源缩略图会在角标显示 `RAW`、`LZMA`、`DXT`、`TXT` 等存储/解码状态。
+- CFG 支持批量扫描和分类。文本 CFG 会提取贴图引用，二进制 RGB 条带型 CFG 会生成缩略图/预览，并与启动器或保护组件配置分开报告。
 - SPR 支持 LithTech 动态精灵解析和动画预览。程序会读取 SPR 中记录的帧率和 DTX 帧路径，从同一个 REZ 包或已解包目录中加载 DTX 帧并自动播放；找不到帧时会回退到帧路径文本预览。
 - LTC 支持缩略图和双击预览。内置解码器会处理普通 LTC、LZMA 压缩 LTC，以及 CrossFire 常见的 `54 83 B2 E1` 头和外层 XOR。解码后的 LTA 文本可以直接查看；如果内容是 LithTech 模型，会尝试渲染模型缩略图并打开独立模型预览窗口。
 - LTB 支持更多二进制 mesh 布局、mesh 表偏移和顶点布局变体，能直接预览更多 CrossFire 导出的模型。
@@ -122,6 +123,28 @@ git push origin v1.1.2
 - 重新打包时，文件名和目录名目前要求为 ASCII。
 - 重新打包时，文件扩展名需要为 1 到 4 个字符。
 - 从文件夹创建新 REZ 会保留内容和目录结构，但不会复制原包的字节级布局、偏移、时间戳或整包 MD5。
+
+## 命令行工具
+
+WPF 程序也提供几个面向资产流程的批处理入口：
+
+```powershell
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
+```
+
+- `--export-obj` 会把 LithTech 模型部件导出为 OBJ/MTL，自动合并带序号的同组模型，按 CFG 映射解析贴图候选，并在 OBJ 旁写出贴图和映射报告。
+- `--scan-cfg` 会扫描 CFG，识别可读文本和 LZMA 文本，提取贴图引用，并输出 TXT/CSV 报告。
+- `--decode-cfg` 会重试失败 CFG，支持可还原文本落盘、二进制 RGB 条带预览图导出，以及高熵启动器/保护组件配置分类。
+
+## v1.1.3 更新
+
+- 新增 LithTech 模型 OBJ/MTL 导出，支持同组模型部件合并、贴图复制/报告生成，以及 Blender 导入所需的映射候选报告。
+- 新增 CFG 贴图索引和扫描流程，可用可读 CFG 建立模型到贴图的关联，并批量输出贴图引用报告。
+- 新增 CFG 失败解码分类：二进制 RGB 条带型 CFG 现在可生成缩略图/预览，高熵启动器/保护组件配置会与模型材质 CFG 分开标记。
+- 改进 CrossFire LTA/LTB/LTC/DAT 模型的贴图加载、预览和导出流程。
+- 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.3`。
 
 ## v1.1.2 更新
 
@@ -196,6 +219,7 @@ git push origin v1.1.2
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`：独立音频预览窗口和频谱绘制。
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`：音频频谱分析和 OGG 转 WAV 播放转换。
 - `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`：FMOD BANK 解码、导出和内嵌 FSB5 音频预览。
+- `CfgScanCommand.cs` / `CfgDecodeCommand.cs` / `CfgBinaryStripDecoder.cs`：CFG 批量扫描、失败解码分类和二进制 RGB 条带预览。
 - `LzmaAloneDecoder.cs`：全局 LZMA 解码、前缀解码和流式解码路径，BANK 预览也复用这一套实现。
 - `BankLzmaAloneDecoder.cs`：保留的旧 BANK LZMA 解码实现，用于回退和对比。
 - `ResourceTextDecoder.cs`：更多文本类 CrossFire 资源解码。
@@ -203,6 +227,7 @@ git push origin v1.1.2
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`：SPR 动态精灵解析和动画帧加载。
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`：LTC 文本和模型预览解码。
 - `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`：LithTech 模型、LTB/LTA world 解析、贴图查找和渲染。
+- `LithTechObjExporter.cs` / `LithTechObjExportCommand.cs` / `LithTechModelTextureConfigIndex.cs` / `LithTechModelPartGrouper.cs` / `LithTechTextureMappingScanner.cs`：OBJ 导出、模型部件合并、CFG 贴图映射和映射报告生成。
 - `LithTechThumbnailGeometryReducer.cs`：为大型模型和地图网格生成更快的缩略图与预览启动几何。
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`：DAT 对象文本和 LithTech world 地图预览解码。
 - `TextThumbnailRenderer.cs`：文本类资源的缩略图渲染。

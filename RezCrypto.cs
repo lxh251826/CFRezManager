@@ -70,6 +70,8 @@ public static class RezCrypto
         0xF9, 0x4D, 0xD0, 0x7F, 0xA7
     ];
 
+    public static int KeyLength => Keys.Length;
+
     public static void Decode(byte[] buffer, int pos)
     {
         for (int i = 0; i < buffer.Length; i++)

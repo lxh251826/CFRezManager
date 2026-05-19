@@ -8,6 +8,8 @@ namespace CFRezManager;
 internal static class LithTechModelTextureLoader
 {
     private const int MaxTextureBytes = 64 * 1024 * 1024;
+    private const int MaxLocalTextureSearchParentDepth = 5;
+    private const int MaxLocalTextureSearchVisitedFiles = 200_000;
     private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp"];
     private static readonly ConditionalWeakTable<RezArchive, Dictionary<string, RezFileNode>> ArchiveFileLookupCache = new();
 
@@ -30,6 +32,7 @@ internal static class LithTechModelTextureLoader
         }
 
         var cache = new Dictionary<string, ImageSource?>(StringComparer.OrdinalIgnoreCase);
+        var fileNameFallbackCache = new Dictionary<string, ImageSource?>(StringComparer.OrdinalIgnoreCase);
         return texturePath =>
         {
             string normalized = NormalizeTexturePath(texturePath);
@@ -38,7 +41,30 @@ internal static class LithTechModelTextureLoader
                 return cached;
             }
 
-            ImageSource? image = TryResolveLocalTexture(modelDirectory, normalized);
+            ImageSource? image = TryResolveLocalTexture(modelDirectory, normalized, fileNameFallbackCache);
+            cache[normalized] = image;
+            return image;
+        };
+    }
+
+    public static Func<string, ImageSource?>? CreateGlobalResolver(ExplorerItem root)
+    {
+        var textureIndex = BuildTextureIndex(root);
+        if (textureIndex.IsEmpty)
+        {
+            return null;
+        }
+
+        var cache = new Dictionary<string, ImageSource?>(StringComparer.OrdinalIgnoreCase);
+        return texturePath =>
+        {
+            string normalized = NormalizeTexturePath(texturePath);
+            if (cache.TryGetValue(normalized, out ImageSource? cached))
+            {
+                return cached;
+            }
+
+            ImageSource? image = TryResolveIndexedTexture(textureIndex, normalized);
             cache[normalized] = image;
             return image;
         };
@@ -103,13 +129,61 @@ internal static class LithTechModelTextureLoader
         return null;
     }
 
+    private static ImageSource? TryResolveIndexedTexture(TextureIndex textureIndex, string texturePath)
+    {
+        foreach (string candidate in GetTexturePathCandidates(texturePath))
+        {
+            string normalizedCandidate = NormalizeTexturePath(candidate);
+            if (textureIndex.FilesByPath.TryGetValue(normalizedCandidate, out ExplorerItem? exactMatch))
+            {
+                return TryReadTextureItem(exactMatch);
+            }
+
+            ExplorerItem? suffixMatch = null;
+            foreach ((string path, ExplorerItem item) in textureIndex.FilesByPath)
+            {
+                if (!path.EndsWith("/" + normalizedCandidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (suffixMatch is not null)
+                {
+                    suffixMatch = null;
+                    break;
+                }
+
+                suffixMatch = item;
+            }
+
+            if (suffixMatch is not null)
+            {
+                return TryReadTextureItem(suffixMatch);
+            }
+        }
+
+        foreach (string candidateName in GetTextureFileNameCandidates(texturePath))
+        {
+            if (textureIndex.UniqueFilesByName.TryGetValue(candidateName, out ExplorerItem? item) &&
+                item is not null)
+            {
+                return TryReadTextureItem(item);
+            }
+        }
+
+        return null;
+    }
+
     private static bool PathMatchesFileName(string path, string fileName)
     {
         return string.Equals(path, fileName, StringComparison.OrdinalIgnoreCase) ||
                path.EndsWith("/" + fileName, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static ImageSource? TryResolveLocalTexture(string modelDirectory, string texturePath)
+    private static ImageSource? TryResolveLocalTexture(
+        string modelDirectory,
+        string texturePath,
+        Dictionary<string, ImageSource?> fileNameFallbackCache)
     {
         foreach (string candidate in GetLocalTexturePathCandidates(modelDirectory, texturePath))
         {
@@ -119,7 +193,138 @@ internal static class LithTechModelTextureLoader
             }
         }
 
+        foreach (string candidateName in GetTextureFileNameCandidates(texturePath))
+        {
+            if (fileNameFallbackCache.TryGetValue(candidateName, out ImageSource? cached))
+            {
+                if (cached is not null)
+                {
+                    return cached;
+                }
+
+                continue;
+            }
+
+            ImageSource? image = null;
+            string? match = TryFindUniqueLocalTextureByFileName(modelDirectory, candidateName);
+            if (match is not null)
+            {
+                image = TryReadLocalTexture(match);
+            }
+
+            fileNameFallbackCache[candidateName] = image;
+            if (image is not null)
+            {
+                return image;
+            }
+        }
+
         return null;
+    }
+
+    private static string? TryFindUniqueLocalTextureByFileName(string modelDirectory, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        foreach (string root in GetLocalTextureSearchRoots(modelDirectory))
+        {
+            string? match = TryFindUniqueFileByName(root, fileName);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetLocalTextureSearchRoots(string modelDirectory)
+    {
+        string? current = modelDirectory;
+        for (int depth = 0;
+             depth < MaxLocalTextureSearchParentDepth && !string.IsNullOrWhiteSpace(current);
+             depth++)
+        {
+            yield return current;
+
+            DirectoryInfo? parent = Directory.GetParent(current);
+            if (parent is null || parent.Parent is null)
+            {
+                break;
+            }
+
+            current = parent.FullName;
+        }
+    }
+
+    private static string? TryFindUniqueFileByName(string root, string fileName)
+    {
+        string? match = null;
+        int visitedFiles = 0;
+        foreach (string filePath in SafeEnumerateFilesRecursive(root))
+        {
+            visitedFiles++;
+            if (visitedFiles > MaxLocalTextureSearchVisitedFiles)
+            {
+                return null;
+            }
+
+            if (!string.Equals(Path.GetFileName(filePath), fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (match is not null)
+            {
+                return null;
+            }
+
+            match = filePath;
+        }
+
+        return match;
+    }
+
+    private static IEnumerable<string> SafeEnumerateFilesRecursive(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(directory).ToList();
+            }
+            catch
+            {
+                files = [];
+            }
+
+            foreach (string file in files)
+            {
+                yield return file;
+            }
+
+            IEnumerable<string> childDirectories;
+            try
+            {
+                childDirectories = Directory.EnumerateDirectories(directory).ToList();
+            }
+            catch
+            {
+                childDirectories = [];
+            }
+
+            foreach (string childDirectory in childDirectories)
+            {
+                pending.Push(childDirectory);
+            }
+        }
     }
 
     private static IEnumerable<string> GetLocalTexturePathCandidates(string modelDirectory, string texturePath)
@@ -204,6 +409,30 @@ internal static class LithTechModelTextureLoader
         }
     }
 
+    private static ImageSource? TryReadTextureItem(ExplorerItem item)
+    {
+        try
+        {
+            if (item.Kind == ExplorerItemKind.LocalFile)
+            {
+                return TryReadLocalTexture(item.SourcePath);
+            }
+
+            if (item.Kind == ExplorerItemKind.RezFile &&
+                item.Archive is not null &&
+                item.ArchiveFile is not null)
+            {
+                return TryReadArchiveTexture(item.Archive, item.ArchiveFile);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
+    }
+
     private static ImageSource? TryReadLocalTexture(string filePath)
     {
         try
@@ -273,6 +502,47 @@ internal static class LithTechModelTextureLoader
         });
     }
 
+    private static TextureIndex BuildTextureIndex(ExplorerItem root)
+    {
+        var filesByPath = new Dictionary<string, ExplorerItem>(StringComparer.OrdinalIgnoreCase);
+        var filesByName = new Dictionary<string, ExplorerItem?>(StringComparer.OrdinalIgnoreCase);
+        CollectTextureItems(root, filesByPath, filesByName);
+        return new TextureIndex(filesByPath, filesByName);
+    }
+
+    private static void CollectTextureItems(
+        ExplorerItem item,
+        Dictionary<string, ExplorerItem> filesByPath,
+        Dictionary<string, ExplorerItem?> filesByName)
+    {
+        if (item.IsFile && TextureExtensions.Contains("." + item.FileExtension, StringComparer.OrdinalIgnoreCase))
+        {
+            string normalizedPath = NormalizeTexturePath(item.OutputRelativePath);
+            if (!string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                filesByPath.TryAdd(normalizedPath, item);
+            }
+
+            string fileName = Path.GetFileName(normalizedPath);
+            if (!string.IsNullOrWhiteSpace(fileName))
+            {
+                if (filesByName.ContainsKey(fileName))
+                {
+                    filesByName[fileName] = null;
+                }
+                else
+                {
+                    filesByName[fileName] = item;
+                }
+            }
+        }
+
+        foreach (ExplorerItem child in item.Children)
+        {
+            CollectTextureItems(child, filesByPath, filesByName);
+        }
+    }
+
     private static void AddArchiveFiles(RezDirectoryNode directory, Dictionary<string, RezFileNode> filesByPath)
     {
         foreach (RezNode child in directory.Children)
@@ -295,5 +565,12 @@ internal static class LithTechModelTextureLoader
             .Trim('"', '\'')
             .Replace('\\', '/')
             .TrimStart('/');
+    }
+
+    private sealed record TextureIndex(
+        Dictionary<string, ExplorerItem> FilesByPath,
+        Dictionary<string, ExplorerItem?> UniqueFilesByName)
+    {
+        public bool IsEmpty => FilesByPath.Count == 0 && UniqueFilesByName.Count == 0;
     }
 }

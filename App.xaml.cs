@@ -7,6 +7,30 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
 
         ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose;
+        if (LithTechObjExportCommand.IsInvocation(e.Args))
+        {
+            ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
+            int exitCode = LithTechObjExportCommand.Run(e.Args);
+            Shutdown(exitCode);
+            return;
+        }
+
+        if (CfgScanCommand.IsInvocation(e.Args))
+        {
+            ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
+            int exitCode = CfgScanCommand.Run(e.Args);
+            Shutdown(exitCode);
+            return;
+        }
+
+        if (CfgDecodeCommand.IsInvocation(e.Args))
+        {
+            ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
+            int exitCode = CfgDecodeCommand.Run(e.Args);
+            Shutdown(exitCode);
+            return;
+        }
+
         if (PreviewTool.IsPreviewInvocation(e.Args))
         {
             LocalizedText.UseSavedLanguage();

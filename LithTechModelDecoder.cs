@@ -23,7 +23,8 @@ public sealed record LithTechMesh(
     IReadOnlyList<LithTechVector3> Vertices,
     IReadOnlyList<int> TriangleIndices,
     IReadOnlyList<LithTechVector2>? TextureCoordinates = null,
-    string? TexturePath = null)
+    string? TexturePath = null,
+    IReadOnlyList<string>? MaterialHints = null)
 {
     public bool HasTextureCoordinates => TextureCoordinates is not null && TextureCoordinates.Count == Vertices.Count;
 }
@@ -1154,6 +1155,7 @@ internal static class LithTechModelDecoder
             .ToList();
         List<LithTechVector2>? textureCoordinates = ParseTextureCoordinates(meshNode, vertices.Count);
         string? texturePath = FindTexturePath(meshNode);
+        List<string> materialHints = FindMaterialHints(meshNode);
 
         int usableIndexCount = triangleIndices.Count - triangleIndices.Count % 3;
         if (vertices.Count == 0 || usableIndexCount < 3)
@@ -1166,7 +1168,7 @@ internal static class LithTechModelDecoder
             triangleIndices.RemoveRange(usableIndexCount, triangleIndices.Count - usableIndexCount);
         }
 
-        return new LithTechMesh(name, vertices, triangleIndices, textureCoordinates, texturePath);
+        return new LithTechMesh(name, vertices, triangleIndices, textureCoordinates, texturePath, materialHints);
     }
 
     private static List<LithTechMesh> ParseWorldMeshes(LtaList root)
@@ -1332,6 +1334,73 @@ internal static class LithTechModelDecoder
         var paths = new List<string>();
         CollectTexturePaths(node, paths);
         return paths.Count > 0 ? paths[0] : null;
+    }
+
+    private static List<string> FindMaterialHints(LtaList node)
+    {
+        var hints = new List<string>();
+        CollectMaterialHints(node, hints);
+        return hints;
+    }
+
+    private static void CollectMaterialHints(LtaList node, List<string> hints)
+    {
+        string head = GetAtomValue(node.Items.FirstOrDefault()) ?? string.Empty;
+        bool isMaterialContext = IsMaterialContextHead(head);
+        if (isMaterialContext)
+        {
+            foreach (LtaAtom atom in node.Items.OfType<LtaAtom>().Skip(1))
+            {
+                AddMaterialHint(atom.Value, hints);
+            }
+        }
+
+        foreach (LtaList child in node.Children)
+        {
+            CollectMaterialHints(child, hints);
+        }
+    }
+
+    private static bool IsMaterialContextHead(string value)
+    {
+        return IsTextureContextHead(value) ||
+               value.Contains("surface", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("renderstyle", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddMaterialHint(string value, List<string> hints)
+    {
+        string normalized = NormalizeTexturePath(value);
+        if (!LooksLikeMaterialHint(normalized))
+        {
+            return;
+        }
+
+        string withoutExtension = Path.GetFileNameWithoutExtension(normalized);
+        string hint = string.IsNullOrWhiteSpace(withoutExtension) ? normalized : withoutExtension;
+        if (!string.IsNullOrWhiteSpace(hint) && !hints.Contains(hint, StringComparer.OrdinalIgnoreCase))
+        {
+            hints.Add(hint);
+        }
+    }
+
+    private static bool LooksLikeMaterialHint(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length < 3 ||
+            value.Length > 128 ||
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return false;
+        }
+
+        if (value.Contains('(') || value.Contains(')'))
+        {
+            return false;
+        }
+
+        string lower = value.ToLowerInvariant();
+        return lower is not "none" and not "null" and not "default" and not "true" and not "false";
     }
 
     private static void CollectTexturePaths(LtaList node, List<string> paths)

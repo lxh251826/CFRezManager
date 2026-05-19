@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v1.1.2
+git tag v1.1.3
 git push origin main
-git push origin v1.1.2
+git push origin v1.1.3
 ```
 
 ## Browse REZ Archives
@@ -62,6 +62,7 @@ After selecting files in search results or a normal folder, use the right-click 
 - OGG files are decoded through the built-in Vorbis path before playback so files that WPF cannot open directly can still preview.
 - FMOD `.bank` files support LZMA wrapper decoding, RIFF/FEV metadata previews, embedded FSB5 block listing, audio thumbnails, player preview through the built-in Fmod5Sharp path with `vgmstream-cli.exe` fallback, a track list for switching internal streams, and a right-click `Decode BANK...` export that writes the decoded bank plus raw FSB5 blocks. Large banks load the first playable stream quickly, then continue appending streams in the background.
 - Audio and resource thumbnails show storage/decode badges such as `RAW`, `LZMA`, `DXT`, and `TXT`.
+- CFG files can be scanned and classified in bulk. Text CFGs expose texture references, while binary RGB-strip CFG payloads render preview thumbnails and are reported separately from launcher/protection configs.
 - SPR files support LithTech sprite parsing and animation preview. The app reads the frame rate and DTX frame paths from the SPR, loads DTX frames from the same REZ archive or extracted resource tree, and plays the animation automatically. If matching DTX frames cannot be found, it falls back to a text preview of the frame table.
 - LTC files support thumbnails and double-click previews. Built-in decoders handle plain LTC, LZMA-compressed LTC, and CrossFire-style LTC files with the `54 83 B2 E1` header plus outer XOR. Decoded LTA text opens directly in the text preview window; LithTech model content can render a model thumbnail and open the standalone model preview window.
 - LTB files support additional binary mesh-table offsets, vertex layouts, trailing mesh data, and mesh type variants, so more exported CrossFire models can be previewed directly.
@@ -122,6 +123,28 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - Packed file and directory names currently must be ASCII.
 - Packed files must have an extension from 1 to 4 characters.
 - Creating a new REZ from a folder preserves content and structure, but it does not try to reproduce the original archive's exact byte layout, offsets, timestamps, or whole-file MD5.
+
+## Command-Line Tools
+
+The WPF executable also exposes focused batch commands for asset pipeline work:
+
+```powershell
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
+```
+
+- `--export-obj` exports LithTech model parts to OBJ/MTL, groups numbered sibling models, resolves texture candidates through CFG mappings, and writes texture/mapping reports next to the OBJ.
+- `--scan-cfg` scans CFG files, identifies readable text and LZMA text, extracts texture references, and writes TXT/CSV reports.
+- `--decode-cfg` retries failed CFGs, writes decoded text when a supported path succeeds, renders binary RGB-strip CFG previews, and classifies high-entropy launcher/protection configs separately.
+
+## v1.1.3 Changes
+
+- Added OBJ/MTL export for LithTech model resources, including sibling-part grouping, texture copy/report generation, and mapping-candidate reports for Blender import workflows.
+- Added a CFG texture index and scanner so readable CFG files can drive model-to-texture resolution and produce bulk texture-reference reports.
+- Added CFG failed-decode classification: binary RGB-strip CFGs now show thumbnails/previews, and high-entropy launcher/protection configs are separated from model material CFGs.
+- Improved model texture loading and model preview/export behavior for CrossFire LTA/LTB/LTC/DAT assets.
+- Updated Chinese and English documentation plus GitHub Release notes, and bumped the application version to `v1.1.3`.
 
 ## v1.1.2 Changes
 
@@ -196,6 +219,7 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `AudioPreviewWindow.xaml` / `AudioPreviewWindow.xaml.cs`: Standalone audio preview window and spectrum renderer.
 - `AudioSpectrumAnalyzer.cs` / `OggVorbisWaveDecoder.cs`: Audio spectrum analysis and OGG-to-WAV playback conversion.
 - `FmodBankDecoder.cs` / `FmodBankAudioPreviewDocumentFactory.cs`: FMOD BANK decode, export, and embedded FSB5 audio preview.
+- `CfgScanCommand.cs` / `CfgDecodeCommand.cs` / `CfgBinaryStripDecoder.cs`: Batch CFG scan/decode commands and binary RGB-strip CFG preview support.
 - `LzmaAloneDecoder.cs`: Shared LZMA decode, prefix decode, and streaming decode path, also used by BANK previews.
 - `BankLzmaAloneDecoder.cs`: Retained legacy BANK LZMA decoder for rollback and comparison.
 - `ResourceTextDecoder.cs`: Decodes additional text-like CrossFire resource formats.
@@ -203,6 +227,7 @@ The selected folder's contents become the root contents of the new REZ archive. 
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
 - `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`: LithTech model, LTB/LTA world parsing, texture lookup, and rendering.
+- `LithTechObjExporter.cs` / `LithTechObjExportCommand.cs` / `LithTechModelTextureConfigIndex.cs` / `LithTechModelPartGrouper.cs` / `LithTechTextureMappingScanner.cs`: OBJ export, model-part grouping, CFG texture mapping, and mapping report generation.
 - `LithTechThumbnailGeometryReducer.cs`: Reduces large model/map meshes for faster thumbnails and smoother preview startup.
 - `CrossFireDatDecoder.cs` / `LithTechWorldDatDecoder.cs`: DAT object text and LithTech world map preview decoding.
 - `TextThumbnailRenderer.cs`: Thumbnail rendering for text-like resources.

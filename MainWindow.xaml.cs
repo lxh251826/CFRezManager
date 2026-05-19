@@ -50,6 +50,8 @@ public partial class MainWindow : Window
     private const int InitialBankPreviewStreams = 1;
     private const int BankPreviewPrefixStepBytes = 8 * 1024 * 1024;
     private const int BankBackgroundPrefetchStepBytes = 8 * 1024 * 1024;
+    private const int MaxObjModelBytes = 128 * 1024 * 1024;
+    private const int MaxObjWorldDatBytes = 256 * 1024 * 1024;
     private static readonly int[] FastBankPreviewPrefixSizes =
     [
         BankPreviewPrefixStepBytes,
@@ -168,7 +170,10 @@ public partial class MainWindow : Window
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
     private readonly record struct ExtractionJob(ExplorerItem Item, string RelativePath);
+    private readonly record struct ModelObjExportProgress(int Completed, int Total, string FileName);
+    private readonly record struct ModelObjExportJob(ExplorerItem Item, string RelativePath);
     private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
+    private sealed record ModelObjExportBatchResult(LithTechObjExportResult ExportResult, int SkippedCount, string MappingReportPath);
 
     public double TileItemWidth
     {
@@ -290,6 +295,16 @@ public partial class MainWindow : Window
             ["CopyNameFailed"] = ("\u590d\u5236\u540d\u79f0\u5931\u8d25", "Copy name failed"),
             ["CopyNameClipboardBusy"] = ("\u526a\u8d34\u677f\u6b63\u88ab\u5176\u4ed6\u7a0b\u5e8f\u5360\u7528\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002", "Clipboard is busy. Please try again."),
             ["DecodeBank"] = ("\u89e3\u7801 BANK...", "Decode BANK..."),
+            ["ExportObj"] = ("\u5bfc\u51fa OBJ...", "Export OBJ..."),
+            ["SaveObjTitle"] = ("\u4fdd\u5b58 OBJ \u6a21\u578b", "Save OBJ model"),
+            ["ObjFileFilter"] = ("OBJ \u6a21\u578b (*.obj)|*.obj|\u6240\u6709\u6587\u4ef6 (*.*)|*.*", "OBJ models (*.obj)|*.obj|All files (*.*)|*.*"),
+            ["PreparingModelObjExport"] = ("\u6b63\u5728\u51c6\u5907 OBJ \u5bfc\u51fa...", "Preparing OBJ export..."),
+            ["IndexingModelTextures"] = ("\u6b63\u5728\u5efa\u7acb\u5168\u5c40\u8d34\u56fe\u7d22\u5f15...", "Building global texture index..."),
+            ["NoModelsToExport"] = ("\u6ca1\u6709\u53ef\u5bfc\u51fa\u7684\u6a21\u578b", "No exportable models"),
+            ["DecodingModelObjExport"] = ("\u6b63\u5728\u89e3\u7801\u6a21\u578b {0:N0}/{1:N0}: {2}", "Decoding model {0:N0}/{1:N0}: {2}"),
+            ["WritingModelObjExport"] = ("\u6b63\u5728\u5199\u5165 OBJ...", "Writing OBJ..."),
+            ["ExportedModelObjResult"] = ("\u5df2\u5bfc\u51fa OBJ: {0:N0} \u4e2a\u6a21\u578b, {1:N0} \u4e2a\u7f51\u683c, {2:N0} \u4e2a\u8d34\u56fe, \u7f3a\u5931\u8d34\u56fe {3:N0} \u4e2a, \u8df3\u8fc7\u6a21\u578b {4:N0} \u4e2a: {5}; \u7ebf\u7d22\u62a5\u544a: {6}", "Exported OBJ: {0:N0} models, {1:N0} meshes, {2:N0} textures, {3:N0} missing textures, skipped {4:N0} models: {5}; mapping report: {6}"),
+            ["ExportObjFailed"] = ("OBJ \u5bfc\u51fa\u5931\u8d25", "OBJ export failed"),
             ["OpenAudioPreview"] = ("播放音频...", "Play Audio..."),
             ["OpenImagePreview"] = ("查看图片...", "View Image..."),
             ["OpenModelPreview"] = ("查看模型...", "View Model..."),
@@ -628,6 +643,23 @@ public partial class MainWindow : Window
         await DecodeBankAsync(selectedItems[0]);
     }
 
+    private async void ExportObjMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
+        if (selectedItems.Count == 0)
+        {
+            return;
+        }
+
+        string? outputPath = SelectObjOutputFile(CreateDefaultObjExportName(selectedItems));
+        if (outputPath is null)
+        {
+            return;
+        }
+
+        await ExportModelsToObjAsync(selectedItems, outputPath);
+    }
+
     private async void OpenPreviewMenuItem_Click(object sender, RoutedEventArgs e)
     {
         List<ExplorerItem> selectedItems = GetSelectedExplorerItems();
@@ -753,6 +785,162 @@ public partial class MainWindow : Window
         finally
         {
             SetBusy(false, keepSearchEnabled: true);
+        }
+    }
+
+    private async Task ExportModelsToObjAsync(IReadOnlyCollection<ExplorerItem> items, string outputPath)
+    {
+        SetBusy(true, keepSearchEnabled: true);
+
+        try
+        {
+            WorkProgress.IsIndeterminate = true;
+            SetStatus("PreparingModelObjExport");
+
+            ExplorerItem? exportRoot = _rootItem;
+            if (exportRoot is not null)
+            {
+                await Task.Run(() => LoadItemsForExtraction(new[] { exportRoot }));
+            }
+            else
+            {
+                await Task.Run(() => LoadItemsForExtraction(items));
+            }
+
+            List<ModelObjExportJob> jobs = BuildModelObjExportJobs(items);
+            if (jobs.Count == 0)
+            {
+                SetStatus("NoModelsToExport");
+                return;
+            }
+
+            SetStatus("IndexingModelTextures");
+            Func<string, ImageSource?>? globalTextureResolver = exportRoot is null
+                ? null
+                : await Task.Run(() => LithTechModelTextureLoader.CreateGlobalResolver(exportRoot));
+            Func<IEnumerable<string>, IReadOnlyList<string>>? textureConfigResolver = exportRoot is null
+                ? null
+                : await Task.Run(() => LithTechModelTextureConfigIndex.CreateResolver(exportRoot));
+
+            WorkProgress.IsIndeterminate = false;
+            WorkProgress.Minimum = 0;
+            WorkProgress.Maximum = jobs.Count;
+            WorkProgress.Value = 0;
+
+            var progress = new Progress<ModelObjExportProgress>(state =>
+            {
+                WorkProgress.Value = state.Completed;
+                SetStatus("DecodingModelObjExport", state.Completed, state.Total, state.FileName);
+            });
+
+            ModelObjExportBatchResult result = await Task.Run(() => ExportModelObjJobs(outputPath, jobs, exportRoot, globalTextureResolver, textureConfigResolver, progress));
+            SetStatus(
+                "ExportedModelObjResult",
+                result.ExportResult.SourceCount,
+                result.ExportResult.MeshCount,
+                result.ExportResult.TextureCount,
+                result.ExportResult.MissingTextureCount,
+                result.SkippedCount,
+                result.ExportResult.ObjPath,
+                result.MappingReportPath);
+        }
+        catch (Exception ex)
+        {
+            ShowError("ExportObjFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false, keepSearchEnabled: true);
+        }
+    }
+
+    private ModelObjExportBatchResult ExportModelObjJobs(
+        string outputPath,
+        IReadOnlyList<ModelObjExportJob> jobs,
+        ExplorerItem? exportRoot,
+        Func<string, ImageSource?>? globalTextureResolver,
+        Func<IEnumerable<string>, IReadOnlyList<string>>? textureConfigResolver,
+        IProgress<ModelObjExportProgress> progress)
+    {
+        var sources = new List<LithTechObjExportSource>();
+        int skippedCount = 0;
+        for (int index = 0; index < jobs.Count; index++)
+        {
+            ModelObjExportJob job = jobs[index];
+            progress.Report(new ModelObjExportProgress(index + 1, jobs.Count, job.Item.Name));
+            if (TryLoadModelDocument(job.Item, out LithTechModelDocument? document, out _) &&
+                document is not null)
+            {
+                sources.Add(new LithTechObjExportSource(
+                    CreateObjSourceName(job),
+                    GetObjSourceResourcePath(job.Item),
+                    document,
+                    CreateObjTextureResolver(job.Item, globalTextureResolver),
+                    textureConfigResolver));
+            }
+            else
+            {
+                skippedCount++;
+            }
+        }
+
+        if (sources.Count == 0)
+        {
+            throw new InvalidOperationException(T("NoModelsToExport"));
+        }
+
+        Dispatcher.Invoke(() => SetStatus("WritingModelObjExport"));
+        LithTechObjExportResult result = LithTechObjExporter.Export(outputPath, sources);
+        string mappingReportPath = LithTechTextureMappingScanner.WriteReport(result.ObjPath, exportRoot, sources);
+        return new ModelObjExportBatchResult(result, skippedCount, mappingReportPath);
+    }
+
+    private static Func<string, ImageSource?>? CreateObjTextureResolver(
+        ExplorerItem item,
+        Func<string, ImageSource?>? globalTextureResolver)
+    {
+        Func<string, ImageSource?>? primaryResolver = LithTechModelTextureLoader.CreateResolver(item);
+        if (primaryResolver is null)
+        {
+            return globalTextureResolver;
+        }
+
+        if (globalTextureResolver is null)
+        {
+            return primaryResolver;
+        }
+
+        return texturePath => primaryResolver(texturePath) ?? globalTextureResolver(texturePath);
+    }
+
+    private static bool TryLoadModelDocument(ExplorerItem item, out LithTechModelDocument? document, out string? errorMessage)
+    {
+        document = null;
+        errorMessage = null;
+
+        try
+        {
+            string extension = item.FileExtension;
+            int maxBytes = LithTechWorldDatDecoder.IsCandidate(extension)
+                ? MaxObjWorldDatBytes
+                : MaxObjModelBytes;
+            byte[] data = ReadExplorerFileBytes(item, maxBytes);
+
+            if (LithTechWorldDatDecoder.IsCandidate(extension) &&
+                LithTechWorldDatDecoder.TryDecode(data, item.Name, out LithTechModelDocument? worldDocument, out errorMessage) &&
+                worldDocument is not null)
+            {
+                document = worldDocument;
+                return true;
+            }
+
+            return LithTechModelDecoder.TryDecode(data, item.Name, extension, out document, out errorMessage) &&
+                   document is not null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
         }
     }
 
@@ -2155,7 +2343,14 @@ public partial class MainWindow : Window
         DecodeBankMenuItem.Visibility = bankItem is null ? Visibility.Collapsed : Visibility.Visible;
         DecodeBankMenuItem.IsEnabled = !_isBusy && bankItem is not null;
         DecodeBankMenuItem.Header = T("DecodeBank");
-        PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility == Visibility.Visible || DecodeBankMenuItem.Visibility == Visibility.Visible
+        bool canExportObj = selectedItems.Count > 0 &&
+                            selectedItems.Any(item => item.IsContainer || item.IsModelPreviewCandidate);
+        ExportObjMenuItem.Visibility = canExportObj ? Visibility.Visible : Visibility.Collapsed;
+        ExportObjMenuItem.IsEnabled = !_isBusy && canExportObj;
+        ExportObjMenuItem.Header = T("ExportObj");
+        PreviewMenuSeparator.Visibility = OpenPreviewMenuItem.Visibility == Visibility.Visible ||
+                                          DecodeBankMenuItem.Visibility == Visibility.Visible ||
+                                          ExportObjMenuItem.Visibility == Visibility.Visible
             ? Visibility.Visible
             : Visibility.Collapsed;
         OpenPreviewMenuItem.IsEnabled = !_isBusy && previewItem is not null;
@@ -2588,6 +2783,7 @@ public partial class MainWindow : Window
         EmptyStateText.Text = T("EmptyFolder");
         OpenPreviewMenuItem.Header = T("OpenPreview");
         DecodeBankMenuItem.Header = T("DecodeBank");
+        ExportObjMenuItem.Header = T("ExportObj");
         LocateFileMenuItem.Header = T("LocateFile");
         CopyNameMenuItem.Header = T("CopyName");
         ExtractSelectedMenuItem.Header = T("ExtractSelectedDefault");
@@ -2982,6 +3178,41 @@ public partial class MainWindow : Window
         return dialog.FileName;
     }
 
+    private string? SelectObjOutputFile(string defaultName)
+    {
+        string safeName = SanitizePathSegment(Path.GetFileNameWithoutExtension(defaultName));
+        if (string.IsNullOrWhiteSpace(safeName))
+        {
+            safeName = "model";
+        }
+
+        using var dialog = new Forms.SaveFileDialog
+        {
+            Title = T("SaveObjTitle"),
+            Filter = T("ObjFileFilter"),
+            DefaultExt = "obj",
+            AddExtension = true,
+            OverwritePrompt = true,
+            InitialDirectory = ResolveInitialDirectory(_settings.LastOutputDirectory, _selectedDirectory),
+            FileName = $"{safeName}.obj"
+        };
+
+        if (dialog.ShowDialog() != Forms.DialogResult.OK)
+        {
+            return null;
+        }
+
+        string? outputDirectory = Path.GetDirectoryName(dialog.FileName);
+        if (!string.IsNullOrEmpty(outputDirectory))
+        {
+            _settings.LastOutputDirectory = outputDirectory;
+            _settings.LastDirectory = outputDirectory;
+            _settings.Save();
+        }
+
+        return dialog.FileName;
+    }
+
     private string GetRememberedDirectory(FolderDialogKind kind)
     {
         return kind switch
@@ -3095,6 +3326,96 @@ public partial class MainWindow : Window
         }
 
         return jobs;
+    }
+
+    private static List<ModelObjExportJob> BuildModelObjExportJobs(IEnumerable<ExplorerItem> items)
+    {
+        var jobs = new List<ModelObjExportJob>();
+        var seenItems = new HashSet<ExplorerItem>();
+        var usedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ExplorerItem item in LithTechModelPartGrouper.ExpandNumberedSiblingParts(items))
+        {
+            string selectedRootPath = item.IsFile
+                ? SanitizePathSegment(Path.GetFileNameWithoutExtension(item.Name))
+                : SanitizePathSegment(item.Name);
+            CollectModelObjExportJobs(item, selectedRootPath, jobs, seenItems, usedRelativePaths);
+        }
+
+        return jobs;
+    }
+
+    private static void CollectModelObjExportJobs(
+        ExplorerItem item,
+        string relativePath,
+        List<ModelObjExportJob> jobs,
+        HashSet<ExplorerItem> seenItems,
+        HashSet<string> usedRelativePaths)
+    {
+        if (item.Kind == ExplorerItemKind.LocalFile ||
+            item.Kind == ExplorerItemKind.RezFile && item.Archive is not null && item.ArchiveFile is not null)
+        {
+            if (item.IsModelPreviewCandidate)
+            {
+                AddModelObjExportJob(item, relativePath, jobs, seenItems, usedRelativePaths);
+            }
+
+            return;
+        }
+
+        foreach (ExplorerItem child in item.Children)
+        {
+            string childRelativePath = CombineRelativePath(relativePath, SanitizePathSegment(child.Name));
+            CollectModelObjExportJobs(child, childRelativePath, jobs, seenItems, usedRelativePaths);
+        }
+    }
+
+    private static void AddModelObjExportJob(
+        ExplorerItem item,
+        string relativePath,
+        List<ModelObjExportJob> jobs,
+        HashSet<ExplorerItem> seenItems,
+        HashSet<string> usedRelativePaths)
+    {
+        if (!seenItems.Add(item))
+        {
+            return;
+        }
+
+        string safeRelativePath = string.IsNullOrWhiteSpace(relativePath)
+            ? SanitizePathSegment(Path.GetFileNameWithoutExtension(item.Name))
+            : relativePath;
+        string withoutExtension = Path.ChangeExtension(safeRelativePath, null) ?? safeRelativePath;
+        jobs.Add(new ModelObjExportJob(item, MakeUniqueRelativePath(withoutExtension, usedRelativePaths)));
+    }
+
+    private string CreateDefaultObjExportName(IReadOnlyList<ExplorerItem> items)
+    {
+        if (items.Count == 1)
+        {
+            string name = Path.GetFileNameWithoutExtension(items[0].Name);
+            return string.IsNullOrWhiteSpace(name) ? items[0].Name : name;
+        }
+
+        string currentName = _currentItem?.Name ?? "models";
+        return $"{currentName}_selection";
+    }
+
+    private static string CreateObjSourceName(ModelObjExportJob job)
+    {
+        string name = Path.ChangeExtension(job.RelativePath, null) ?? job.RelativePath;
+        return name
+            .Replace(Path.DirectorySeparatorChar, '_')
+            .Replace(Path.AltDirectorySeparatorChar, '_')
+            .Replace('/', '_')
+            .Replace('\\', '_');
+    }
+
+    private static string GetObjSourceResourcePath(ExplorerItem item)
+    {
+        return string.IsNullOrWhiteSpace(item.OutputRelativePath)
+            ? item.Name
+            : item.OutputRelativePath;
     }
 
     private static void CollectExtractionJobsPreservingPaths(

@@ -38,6 +38,10 @@ public enum ImageStorageKind
     AudioLzmaCompressed,
     ResourceText,
     ResourceTextLzma,
+    ConfigText,
+    ConfigTextLzma,
+    ConfigBinary,
+    ConfigBinaryStrip,
     RasterUncompressed,
     RasterLzmaCompressed,
     LithTechModel,
@@ -154,6 +158,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.AudioLzmaCompressed => "LZMA",
         ImageStorageKind.ResourceText => "TXT",
         ImageStorageKind.ResourceTextLzma => "LZMA",
+        ImageStorageKind.ConfigText => "CFG",
+        ImageStorageKind.ConfigTextLzma => "LZMA",
+        ImageStorageKind.ConfigBinary => "CFG?",
+        ImageStorageKind.ConfigBinaryStrip => "STRIP",
         ImageStorageKind.FmodBank => "BANK",
         _ => null
     };
@@ -183,6 +191,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.AudioLzmaCompressed => "LZ",
         ImageStorageKind.ResourceText => "TX",
         ImageStorageKind.ResourceTextLzma => "LZ",
+        ImageStorageKind.ConfigText => "CF",
+        ImageStorageKind.ConfigTextLzma => "LZ",
+        ImageStorageKind.ConfigBinary => "C?",
+        ImageStorageKind.ConfigBinaryStrip => "CS",
         ImageStorageKind.FmodBank => "BK",
         _ => null
     };
@@ -334,6 +346,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.ResourceTextLzma)
                 {
                     lines.Add("Resource preview: LZMA-compressed decoded text");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ConfigText)
+                {
+                    lines.Add("CFG preview: decoded text");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ConfigTextLzma)
+                {
+                    lines.Add("CFG preview: LZMA-compressed decoded text");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ConfigBinary)
+                {
+                    lines.Add("CFG preview: text decode failed, possibly encrypted or binary");
+                }
+                else if (_imageStorageKind is ImageStorageKind.ConfigBinaryStrip)
+                {
+                    lines.Add("CFG preview: detected binary RGB strip payload");
                 }
 
                 lines.Add($"Offset: {ArchiveFile.DataOffset:N0}");
@@ -529,6 +557,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         return IsFile &&
                (ThumbnailExtensions.Contains(extension) ||
                 TextThumbnailExtensions.Contains(extension) ||
+                TextPreviewDecoder.IsPlainTextExtension(extension) ||
                 AudioExtensions.Contains(extension) ||
                 LithTechModelDecoder.IsCandidate(extension) ||
                 LithTechWorldDatDecoder.IsCandidate(extension) ||
@@ -618,6 +647,11 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             if (ResourceTextDecoder.IsCandidate(Name, extension) && TextThumbnailExtensions.Contains(extension))
             {
                 return LoadResourceTextThumbnail(data, extension);
+            }
+
+            if (TextPreviewDecoder.IsPlainTextExtension(extension))
+            {
+                return LoadPlainTextThumbnail(data, extension);
             }
 
             if (CrossFireLtcDecoder.IsCandidate(extension))
@@ -756,6 +790,42 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ? "TXT"
             : extension.ToUpperInvariant();
         return TextThumbnailRenderer.TryRender(Name, document.Text, badge);
+    }
+
+    private ImageSource? LoadPlainTextThumbnail(byte[] data, string extension)
+    {
+        byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data, MaxThumbnailBytes);
+        bool compressed = prepared is not null && !ReferenceEquals(prepared, data);
+        byte[] textBytes = prepared ?? data;
+        if (!TextPreviewDecoder.TryDecode(textBytes, preferKorean: false, out string text, out _))
+        {
+            if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+            {
+                if (CfgBinaryStripDecoder.TryRenderThumbnail(textBytes, out ImageSource? stripThumbnail, out _))
+                {
+                    SetImageStorageKind(ImageStorageKind.ConfigBinaryStrip);
+                    return stripThumbnail;
+                }
+
+                SetImageStorageKind(ImageStorageKind.ConfigBinary);
+                return TextThumbnailRenderer.TryRender(Name, "Text decode failed\nPossible encrypted or binary CFG", "CFG?");
+            }
+
+            return null;
+        }
+
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            SetImageStorageKind(compressed
+                ? ImageStorageKind.ConfigTextLzma
+                : ImageStorageKind.ConfigText);
+            return TextThumbnailRenderer.TryRender(Name, text, "CFG");
+        }
+
+        SetImageStorageKind(compressed
+            ? ImageStorageKind.ResourceTextLzma
+            : ImageStorageKind.ResourceText);
+        return TextThumbnailRenderer.TryRender(Name, text, extension.ToUpperInvariant());
     }
 
     private ImageSource? LoadFmodBankThumbnail()
@@ -1096,22 +1166,129 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     resourceDocument.DecodedByteCount);
             }
 
-            if (!TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
+            byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data, MaxTextPreviewBytes);
+            bool compressed = prepared is not null && !ReferenceEquals(prepared, data);
+            byte[] textBytes = prepared ?? data;
+            if (!TextPreviewDecoder.TryDecode(textBytes, preferKorean: false, out string text, out string encoding))
             {
+                if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new TextPreviewDocument(
+                        BuildCfgDecodeFailurePreview(data, textBytes),
+                        compressed ? "LZMA / decode failed" : "Decode failed",
+                        TextPreviewStorageKind.Plain,
+                        data.Length,
+                        textBytes.Length);
+                }
+
                 return null;
             }
 
             return new TextPreviewDocument(
                 text,
-                encoding,
+                compressed ? $"LZMA / {encoding}" : encoding,
                 TextPreviewStorageKind.Plain,
                 data.Length,
-                data.Length);
+                textBytes.Length);
         }
         catch
         {
             return null;
         }
+    }
+
+    private string BuildCfgDecodeFailurePreview(byte[] sourceBytes, byte[] preparedBytes)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("CFG text decode failed.");
+        builder.AppendLine("The file may be encrypted, compressed with an unsupported method, or binary data.");
+        builder.AppendLine();
+        builder.AppendLine($"File: {Name}");
+        builder.AppendLine($"Source bytes: {sourceBytes.Length:N0}");
+        builder.AppendLine($"Prepared bytes: {preparedBytes.Length:N0}");
+        builder.AppendLine($"LZMA header: {(LzmaAloneDecoder.IsCompressed(sourceBytes) ? "yes" : "no")}");
+        if (CfgBinaryStripDecoder.TryDetect(preparedBytes, out CfgBinaryStripInfo stripInfo))
+        {
+            builder.AppendLine($"Binary CFG pattern: {CfgBinaryStripDecoder.Describe(stripInfo)}");
+        }
+
+        builder.AppendLine();
+        AppendBytePreview(builder, preparedBytes);
+        AppendAsciiStrings(builder, preparedBytes);
+        return builder.ToString();
+    }
+
+    private static void AppendBytePreview(System.Text.StringBuilder builder, byte[] data)
+    {
+        int count = Math.Min(data.Length, 128);
+        builder.AppendLine($"First {count:N0} bytes:");
+        if (count == 0)
+        {
+            builder.AppendLine("(empty)");
+            builder.AppendLine();
+            return;
+        }
+
+        for (int offset = 0; offset < count; offset += 16)
+        {
+            int lineCount = Math.Min(16, count - offset);
+            string hex = string.Join(" ", data.Skip(offset).Take(lineCount).Select(value => value.ToString("X2")));
+            string ascii = new(data.Skip(offset).Take(lineCount).Select(ToPreviewChar).ToArray());
+            builder.AppendLine($"{offset:X4}: {hex,-47}  {ascii}");
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendAsciiStrings(System.Text.StringBuilder builder, byte[] data)
+    {
+        builder.AppendLine("Printable ASCII strings:");
+        int written = 0;
+        foreach (string value in ExtractPrintableAsciiStrings(data, minLength: 4, maxCount: 32))
+        {
+            builder.AppendLine(value);
+            written++;
+        }
+
+        if (written == 0)
+        {
+            builder.AppendLine("(none)");
+        }
+    }
+
+    private static IEnumerable<string> ExtractPrintableAsciiStrings(byte[] data, int minLength, int maxCount)
+    {
+        var current = new System.Text.StringBuilder();
+        foreach (byte value in data)
+        {
+            if (value is >= 0x20 and <= 0x7E)
+            {
+                current.Append((char)value);
+                continue;
+            }
+
+            if (current.Length >= minLength)
+            {
+                yield return current.ToString();
+                maxCount--;
+                if (maxCount <= 0)
+                {
+                    yield break;
+                }
+            }
+
+            current.Clear();
+        }
+
+        if (current.Length >= minLength && maxCount > 0)
+        {
+            yield return current.ToString();
+        }
+    }
+
+    private static char ToPreviewChar(byte value)
+    {
+        return value is >= 0x20 and <= 0x7E ? (char)value : '.';
     }
 
     private LithTechModelDocument? LoadModelPreview()
@@ -1475,6 +1652,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",
             ImageStorageKind.AudioUncompressed or ImageStorageKind.AudioLzmaCompressed => "Audio",
             ImageStorageKind.ResourceText or ImageStorageKind.ResourceTextLzma => "Resource",
+            ImageStorageKind.ConfigText or ImageStorageKind.ConfigTextLzma or ImageStorageKind.ConfigBinary or ImageStorageKind.ConfigBinaryStrip => "CFG",
             ImageStorageKind.FmodBank or ImageStorageKind.FmodBankLzma => "BANK",
             _ => "Image"
         };
