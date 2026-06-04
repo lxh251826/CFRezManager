@@ -104,7 +104,7 @@ git push origin v1.1.4
 4. 选择 `导出此项...` 或 `导出 N 个选中项...`。
 5. 选择输出文件夹。
 
-导出的文件会保留 REZ 内部目录结构。
+导出的文件会保留 REZ 内部目录结构。可识别的 CrossFire 图片 BIN 会在导出时解码为标准 `.png`；UI 脚本或配置类 BIN 会继续按原始 `.bin` 导出。
 
 ## 重新打包为 REZ
 
@@ -139,6 +139,12 @@ dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\
 - `--export-obj` 会把 LithTech 模型部件导出为 OBJ/MTL，自动合并带序号的同组模型，按 CFG 映射解析贴图候选，并在 OBJ 旁写出贴图和映射报告。
 - `--scan-cfg` 会扫描 CFG，识别可读文本和 LZMA 文本，提取贴图引用，并输出 TXT/CSV 报告。
 - `--decode-cfg` 会重试失败 CFG，支持可还原文本落盘、二进制 RGB 条带预览图导出，以及高熵启动器/保护组件配置分类。
+
+## v1.1.5 更新
+
+- 修正图片 BIN 导出仍保留原始 `.bin` 数据的问题：导出时会探测 CrossFire 图片 BIN，并写出标准 `.png` 文件。
+- UI 脚本或配置类 BIN 不会被误改为图片，仍按原始 `.bin` 导出。
+- 版本号提升到 `v1.1.5`。
 
 ## v1.1.4 更新
 

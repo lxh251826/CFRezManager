@@ -25,7 +25,17 @@ internal static class CrossFireImageBinDecoder
 
     public static bool HasEncodedHeader(byte[] data)
     {
-        return data.AsSpan().StartsWith(EncodedHeader);
+        return HasEncodedHeader(data.AsSpan());
+    }
+
+    public static bool HasEncodedHeader(ReadOnlySpan<byte> data)
+    {
+        return data.StartsWith(EncodedHeader);
+    }
+
+    public static bool HasSupportedImageHeader(ReadOnlySpan<byte> data)
+    {
+        return TryReadZstdImageHeader(data, out _, out _, out _, out _);
     }
 
     public static bool TryDecodeThumbnail(byte[] data, out ImageSource? image, out ImageStorageKind storageKind)
@@ -71,6 +81,35 @@ internal static class CrossFireImageBinDecoder
         }
 
         return null;
+    }
+
+    public static bool TryWritePng(byte[] data, string outputPath, out ImageStorageKind storageKind)
+    {
+        try
+        {
+            IReadOnlyList<ImagePreviewFrame> frames = TryDecodePreviewFrames(data, out storageKind);
+            if (frames.FirstOrDefault()?.Source is not BitmapSource bitmap)
+            {
+                return false;
+            }
+
+            string? outputDirectory = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using FileStream output = File.Create(outputPath);
+            encoder.Save(output);
+            return true;
+        }
+        catch
+        {
+            storageKind = ImageStorageKind.None;
+            return false;
+        }
     }
 
     public static string? GetStorageDescription(ImageStorageKind storageKind)
@@ -242,6 +281,16 @@ internal static class CrossFireImageBinDecoder
         out int bytesPerPixel,
         out int compressedByteCount)
     {
+        return TryReadZstdImageHeader(data.AsSpan(), out width, out height, out bytesPerPixel, out compressedByteCount);
+    }
+
+    private static bool TryReadZstdImageHeader(
+        ReadOnlySpan<byte> data,
+        out int width,
+        out int height,
+        out int bytesPerPixel,
+        out int compressedByteCount)
+    {
         width = 0;
         height = 0;
         bytesPerPixel = 0;
@@ -251,10 +300,10 @@ internal static class CrossFireImageBinDecoder
             return false;
         }
 
-        uint rawWidth = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(0, sizeof(uint)));
-        uint rawHeight = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4, sizeof(uint)));
-        uint rawBytesPerPixel = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(8, sizeof(uint)));
-        uint rawCompressedByteCount = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12, sizeof(uint)));
+        uint rawWidth = BinaryPrimitives.ReadUInt32LittleEndian(data[..sizeof(uint)]);
+        uint rawHeight = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(4, sizeof(uint)));
+        uint rawBytesPerPixel = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(8, sizeof(uint)));
+        uint rawCompressedByteCount = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(12, sizeof(uint)));
         if (rawWidth == 0 ||
             rawHeight == 0 ||
             rawWidth > MaxZstdImageSide ||
@@ -267,7 +316,7 @@ internal static class CrossFireImageBinDecoder
             return false;
         }
 
-        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(ZstdImageHeaderLength, sizeof(uint)));
+        uint magic = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(ZstdImageHeaderLength, sizeof(uint)));
         if (magic != ZstdMagic)
         {
             return false;

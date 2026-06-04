@@ -104,7 +104,7 @@ To export only specific items:
 4. Choose `Extract This Item...` or `Extract N Selected Items...`.
 5. Select an output folder.
 
-Exported files keep their internal REZ folder structure.
+Exported files keep their internal REZ folder structure. Recognized CrossFire image BIN files are decoded to standard `.png` files during export; UI script or configuration BIN files continue to export as the original `.bin`.
 
 ## Pack A Folder Into REZ
 
@@ -139,6 +139,12 @@ dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\
 - `--export-obj` exports LithTech model parts to OBJ/MTL, groups numbered sibling models, resolves texture candidates through CFG mappings, and writes texture/mapping reports next to the OBJ.
 - `--scan-cfg` scans CFG files, identifies readable text and LZMA text, extracts texture references, and writes TXT/CSV reports.
 - `--decode-cfg` retries failed CFGs, writes decoded text when a supported path succeeds, renders binary RGB-strip CFG previews, and classifies high-entropy launcher/protection configs separately.
+
+## v1.1.5 Changes
+
+- Fixed image BIN extraction exporting the original `.bin` data: supported CrossFire image BIN files are now detected and written as standard `.png` files.
+- UI script or configuration BIN files are not treated as images and still export as the original `.bin`.
+- Bumped the application version to `v1.1.5`.
 
 ## v1.1.4 Changes
 

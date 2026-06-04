@@ -59,6 +59,7 @@ jobs:
             - 预览 PNG、JPG、BMP、GIF、TIFF、DDS、TGA、DTX、WAV、OGG、MP3、SPR、LTC、DAT、模型和 world 地图资源。
             - 解码 CrossFire 常见 LZMA 压缩 DTX/TGA/DAT/LTC/音频/文本/图片资源。
             - 预览新版 CrossFire BIN 图片，支持 `16 字节头 + Zstandard + BGRA32 像素` 容器，也保留 CF10/XOR 外壳兜底。
+            - 导出可识别的 CrossFire 图片 BIN 时自动写出标准 PNG，脚本/配置 BIN 保留原始文件。
             - 预览 DDS DXT 块压缩纹理和常见未压缩 DDS 纹理。
             - 解析 LithTech SPR 动态精灵，并从 REZ 包或本地解包目录加载 DTX 帧自动播放动画。
             - 预览更多 LTB 二进制模型和 LTA world/map 文本资源。
@@ -67,6 +68,12 @@ jobs:
             - 解码 CrossFire UI 脚本 BIN 配置表，并支持 BIN 贴图候选参与模型贴图解析。
             - 缓存已生成缩略图，重复浏览未变化资源时可以跳过重复解码和渲染。
             - 支持中文和英文界面切换，并记住语言、目录和视图大小。
+
+            ### v1.1.5 更新
+
+            - 修正图片 BIN 导出仍保留原始 `.bin` 数据的问题：导出时会探测 CrossFire 图片 BIN，并写出标准 `.png` 文件。
+            - UI 脚本或配置类 BIN 不会被误改为图片，仍按原始 `.bin` 导出。
+            - 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.5`。
 
             ### v1.1.4 更新
 
@@ -128,6 +135,7 @@ jobs:
             - Preview PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, WAV, OGG, MP3, SPR, LTC, DAT, model, and world resources.
             - Decode common CrossFire LZMA-compressed DTX/TGA/DAT/LTC/audio/text/image resources.
             - Preview newer CrossFire BIN images using the `16-byte header + Zstandard + BGRA32 pixels` container, with the CF10/XOR image wrapper kept as a fallback.
+            - Export recognized CrossFire image BIN files as standard PNG files, while script/configuration BIN files keep their original data.
             - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
             - Parse LithTech SPR sprites and preview animations by loading referenced DTX frames from REZ archives or local extracted folders.
             - Preview more LTB binary models and LTA world/map text files.
@@ -136,6 +144,12 @@ jobs:
             - Decode CrossFire UI script BIN configuration tables and use BIN files as model texture candidates.
             - Cache generated thumbnails so unchanged resources can skip repeat decoding and rendering.
             - Switch between Chinese and English UI text, with remembered language, folders, and view size.
+
+            ### v1.1.5 Changes
+
+            - Fixed image BIN extraction exporting the original `.bin` data: supported CrossFire image BIN files are now detected and written as standard `.png` files.
+            - UI script or configuration BIN files are not treated as images and still export as the original `.bin`.
+            - Updated Chinese and English documentation plus GitHub Release notes, and bumped the application version to `v1.1.5`.
 
             ### v1.1.4 Changes
 

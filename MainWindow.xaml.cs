@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private const int InitialBankPreviewStreams = 1;
     private const int BankPreviewPrefixStepBytes = 8 * 1024 * 1024;
     private const int BankBackgroundPrefetchStepBytes = 8 * 1024 * 1024;
+    private const int ImageBinHeaderProbeBytes = 20;
     private const int MaxObjModelBytes = 128 * 1024 * 1024;
     private const int MaxObjWorldDatBytes = 256 * 1024 * 1024;
     private static readonly int[] FastBankPreviewPrefixSizes =
@@ -169,7 +170,7 @@ public partial class MainWindow : Window
     private ExplorerItem? _searchIndexTaskRoot;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
-    private readonly record struct ExtractionJob(ExplorerItem Item, string RelativePath);
+    private readonly record struct ExtractionJob(ExplorerItem Item, string RelativePath, bool DecodeImageToPng);
     private readonly record struct ModelObjExportProgress(int Completed, int Total, string FileName);
     private readonly record struct ModelObjExportJob(ExplorerItem Item, string RelativePath);
     private readonly record struct SearchEntry(ExplorerItem Item, string SearchText);
@@ -3537,7 +3538,47 @@ public partial class MainWindow : Window
         string safeRelativePath = string.IsNullOrWhiteSpace(relativePath)
             ? SanitizePathSegment(item.Name)
             : relativePath;
-        jobs.Add(new ExtractionJob(item, MakeUniqueRelativePath(safeRelativePath, usedRelativePaths)));
+        bool decodeImageToPng = ShouldExtractImageBinAsPng(item);
+        if (decodeImageToPng)
+        {
+            safeRelativePath = Path.ChangeExtension(safeRelativePath, ".png") ?? $"{safeRelativePath}.png";
+        }
+
+        jobs.Add(new ExtractionJob(item, MakeUniqueRelativePath(safeRelativePath, usedRelativePaths), decodeImageToPng));
+    }
+
+    private static bool ShouldExtractImageBinAsPng(ExplorerItem item)
+    {
+        if (!item.IsFile ||
+            !CrossFireImageBinDecoder.IsCandidate(item.FileExtension) ||
+            CrossFireScriptBinDecoder.IsCandidate(item.Name, item.FileExtension))
+        {
+            return false;
+        }
+
+        try
+        {
+            byte[] header = ReadExplorerFilePrefixBytes(item, ImageBinHeaderProbeBytes);
+            if (CrossFireImageBinDecoder.HasSupportedImageHeader(header))
+            {
+                return true;
+            }
+
+            if (!CrossFireImageBinDecoder.HasEncodedHeader(header))
+            {
+                return false;
+            }
+
+            byte[] data = ReadExplorerFileBytes(item, int.MaxValue);
+            return CrossFireImageBinDecoder.TryDecodeThumbnail(data, out _, out ImageStorageKind storageKind) &&
+                   storageKind is ImageStorageKind.CrossFireImageBin or
+                       ImageStorageKind.CrossFireImageBinLzma or
+                       ImageStorageKind.CrossFireImageBinZstd;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string MakeUniqueRelativePath(string relativePath, HashSet<string> usedRelativePaths)
@@ -3679,7 +3720,11 @@ public partial class MainWindow : Window
         {
             ExplorerItem item = job.Item;
             string destinationPath = Path.Combine(outputDirectory, job.RelativePath);
-            if (item.Kind == ExplorerItemKind.LocalFile)
+            if (job.DecodeImageToPng)
+            {
+                WriteDecodedImageBinPng(item, destinationPath);
+            }
+            else if (item.Kind == ExplorerItemKind.LocalFile)
             {
                 string? destinationDirectory = Path.GetDirectoryName(destinationPath);
                 if (!string.IsNullOrWhiteSpace(destinationDirectory))
@@ -3700,6 +3745,15 @@ public partial class MainWindow : Window
                 progress.Report(new ExtractionProgress(done, jobs.Count, item.Name));
             }
         });
+    }
+
+    private static void WriteDecodedImageBinPng(ExplorerItem item, string destinationPath)
+    {
+        byte[] data = ReadExplorerFileBytes(item, int.MaxValue);
+        if (!CrossFireImageBinDecoder.TryWritePng(data, destinationPath, out _))
+        {
+            throw new InvalidDataException($"Failed to decode image BIN for export: {item.Name}");
+        }
     }
 
     private static bool ShouldReportProgress(ref long nextReportAt)
