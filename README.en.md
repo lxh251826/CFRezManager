@@ -1,7 +1,7 @@
 # CF Rez Manager
 
-![Main window](image-1.png)
-![Preview window](image.png)
+![Main window](image.png)
+![Preview window](image-1.png)
 
 CF Rez Manager is a Windows WPF tool for browsing, searching, extracting, and packing LithTech / CrossFire `.rez` archives.
 
@@ -256,6 +256,27 @@ dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\
 
 ## Support The Project
 
-Making this tool takes time and care. If it helps you, a small tip is appreciated.
+<div align="center">
+
+Making this tool takes time and care. If it helps you, a small tip is appreciated. Every bit of support goes back into fixes, compatibility work, and future updates.
 
 ![Support QR code](afc08a3298aeb1fa378e9d89ca34e35a.jpg)
+
+### Thanks To These Supporters
+
+<table>
+  <tr>
+    <td align="center" width="220">
+      <strong>黑猫不是警长</strong><br />
+      <sub>Tip 20</sub>
+    </td>
+    <td align="center" width="220">
+      <strong>KissJoJo</strong><br />
+      <sub>Tip 100</sub>
+    </td>
+  </tr>
+</table>
+
+<sub>Listed in the order the support was received. Thank you for helping this little tool keep moving.</sub>
+
+</div>
