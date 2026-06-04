@@ -15,7 +15,8 @@ internal static class LithTechModelTextureConfigIndex
         ".png",
         ".jpg",
         ".jpeg",
-        ".bmp"
+        ".bmp",
+        ".bin"
     ];
 
     public static Func<IEnumerable<string>, IReadOnlyList<string>>? CreateResolver(ExplorerItem root)

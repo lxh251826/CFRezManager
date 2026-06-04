@@ -24,7 +24,8 @@ internal static class LithTechTextureMappingScanner
         "png",
         "jpg",
         "jpeg",
-        "bmp"
+        "bmp",
+        "bin"
     };
 
     private static readonly HashSet<string> PreferredMappingExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -59,7 +60,8 @@ internal static class LithTechTextureMappingScanner
         ".png",
         ".jpg",
         ".jpeg",
-        ".bmp"
+        ".bmp",
+        ".bin"
     };
 
     private static readonly string[] BindingKeywords =

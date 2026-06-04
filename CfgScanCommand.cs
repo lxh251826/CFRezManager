@@ -341,6 +341,6 @@ internal static partial class CfgScanCommand
         return $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
     }
 
-    [GeneratedRegex(@"(?i)(?:[A-Za-z]:)?[A-Za-z0-9_ ./\\\-\[\]\(\)]+?\.(?:dtx|dds|tga|png|jpg|jpeg|bmp)")]
+    [GeneratedRegex(@"(?i)(?:[A-Za-z]:)?[A-Za-z0-9_ ./\\\-\[\]\(\)]+?\.(?:dtx|dds|tga|png|jpg|jpeg|bmp|bin)")]
     private static partial Regex CreateTextureReferenceRegex();
 }

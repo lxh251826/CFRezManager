@@ -18,7 +18,8 @@ internal static class PreviewTool
         "png",
         "tga",
         "tif",
-        "tiff"
+        "tiff",
+        "bin"
     };
 
     private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -74,6 +75,7 @@ internal static class PreviewTool
                AudioExtensions.Contains(extension) ||
                EncTextDecoder.IsCandidate(fileName, extension) ||
                CrossFireDatDecoder.IsCandidate(extension) ||
+               CrossFireScriptBinDecoder.IsCandidate(fileName, extension) ||
                LithTechSpriteDecoder.IsCandidate(extension) ||
                FmodBankDecoder.IsCandidate(extension) ||
                ResourceTextDecoder.IsCandidate(fileName, extension) ||
@@ -188,7 +190,13 @@ internal static class PreviewTool
         IReadOnlyList<ImagePreviewFrame> frames;
         string? info = null;
 
-        if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
+        if (CrossFireImageBinDecoder.IsCandidate(extension) ||
+            CrossFireImageBinDecoder.HasEncodedHeader(data))
+        {
+            frames = CrossFireImageBinDecoder.TryDecodePreviewFrames(data, out ImageStorageKind storageKind);
+            info = CrossFireImageBinDecoder.GetStorageDescription(storageKind);
+        }
+        else if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
         {
             ImageSource? image = DtxThumbnailDecoder.TryDecodeOriginal(data);
             frames = image is null ? [] : new[] { new ImagePreviewFrame("Original", image) };
@@ -406,6 +414,19 @@ internal static class PreviewTool
 
             string info = $"{datDocument.StorageDescription}, version {datDocument.Version}, {datDocument.ObjectCount:N0} {datDocument.ObjectKind}, {datDocument.SourceByteCount:N0} bytes -> {datDocument.DecodedByteCount:N0} bytes";
             window = new TextPreviewWindow(fileName, datDocument.Text, info);
+            return true;
+        }
+
+        if (CrossFireScriptBinDecoder.IsCandidate(fileName, extension))
+        {
+            if (!CrossFireScriptBinDecoder.TryDecode(data, fileName, out CrossFireScriptBinDocument? scriptBinDocument, out errorMessage) ||
+                scriptBinDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{scriptBinDocument.Description}, {scriptBinDocument.SourceByteCount:N0} bytes -> {scriptBinDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, scriptBinDocument.Text, info);
             return true;
         }
 

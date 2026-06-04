@@ -422,7 +422,7 @@ internal static partial class CfgDecodeCommand
         int assignmentCount = Regex.Matches(text, @"(?m)^\s*[^=\r\n]{1,120}=\s*.+$").Count;
         score += Math.Min(40, assignmentCount * 4);
 
-        int textureReferenceCount = Regex.Matches(text, @"(?i)\.(png|dds|dtx|tga|jpg|jpeg|bmp)\b").Count;
+        int textureReferenceCount = Regex.Matches(text, @"(?i)\.(png|dds|dtx|tga|jpg|jpeg|bmp|bin)\b").Count;
         score += Math.Min(30, textureReferenceCount * 3);
 
         int lineCount = text.Count(ch => ch == '\n') + 1;

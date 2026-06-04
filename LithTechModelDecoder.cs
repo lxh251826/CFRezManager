@@ -57,7 +57,7 @@ internal static class LithTechModelDecoder
     private const ushort LtbMeshTypeSkinned = 4;
     private const ushort LtbMeshTypeTwoExtraFloats = 5;
     private const ushort LtbMeshTypeSkinnedExtraFloat = 6;
-    private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp"];
+    private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp", ".bin"];
     private static readonly string[] LtaTextureCoordinateHeads =
     [
         "uv",

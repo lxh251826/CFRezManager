@@ -335,6 +335,15 @@ public partial class MainWindow : Window
             ["PreviewTgaRaw"] = ("TGA - 未压缩", "TGA - uncompressed"),
             ["PreviewTgaRepaired"] = ("TGA - 拼接修复", "TGA - repaired layout"),
             ["PreviewTgaRawPixels"] = ("TGA - 原始像素修复", "TGA - repaired raw pixels"),
+            ["PreviewImageBin"] = ("BIN - CF10/XOR \u56fe\u7247", "BIN - CF10/XOR image"),
+            ["PreviewImageBinLzma"] = ("BIN - CF10/XOR LZMA \u538b\u7f29\u56fe\u7247", "BIN - CF10/XOR LZMA image"),
+            ["PreviewImageBinZstd"] = ("BIN - Zstandard \u538b\u7f29 BGRA \u56fe\u7247", "BIN - Zstandard BGRA image"),
+            ["ClearThumbnailCache"] = ("\u6e05\u7f29\u7565\u56fe", "Clear Cache"),
+            ["ClearThumbnailCacheTooltip"] = ("\u5220\u9664\u5f53\u524d Windows \u7528\u6237\u76ee\u5f55\u4e0b\u7684\u7f29\u7565\u56fe\u78c1\u76d8\u7f13\u5b58", "Delete cached thumbnail PNGs under the current Windows user profile"),
+            ["ClearingThumbnailCache"] = ("\u6b63\u5728\u6e05\u9664\u7f29\u7565\u56fe\u7f13\u5b58...", "Clearing thumbnail cache..."),
+            ["ThumbnailCacheCleared"] = ("\u5df2\u6e05\u9664 {0:N0} \u4e2a\u7f29\u7565\u56fe\u7f13\u5b58\u6587\u4ef6\uff0c\u91ca\u653e {1}", "Cleared {0:N0} thumbnail cache files, freed {1}"),
+            ["ThumbnailCacheEmpty"] = ("\u6ca1\u6709\u627e\u5230\u9700\u8981\u6e05\u9664\u7684\u7f29\u7565\u56fe\u7f13\u5b58", "No thumbnail cache files found"),
+            ["ClearThumbnailCacheFailed"] = ("\u6e05\u9664\u7f29\u7565\u56fe\u7f13\u5b58\u5931\u8d25", "Clear thumbnail cache failed"),
             ["ErrorStatus"] = ("{0}: {1}", "{0}: {1}")
         };
 
@@ -408,6 +417,39 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             ShowError("PackFailed", ex);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async void ClearThumbnailCacheButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        SetBusy(true);
+
+        try
+        {
+            WorkProgress.IsIndeterminate = true;
+            SetStatus("ClearingThumbnailCache");
+
+            ThumbnailCacheClearResult result = await Task.Run(ThumbnailDiskCache.Clear);
+            if (result.DeletedFileCount == 0)
+            {
+                SetStatus("ThumbnailCacheEmpty");
+                return;
+            }
+
+            SetStatus("ThumbnailCacheCleared", result.DeletedFileCount, FormatByteSize(result.DeletedByteCount));
+        }
+        catch (Exception ex)
+        {
+            ShowError("ClearThumbnailCacheFailed", ex);
         }
         finally
         {
@@ -1927,6 +1969,9 @@ public partial class MainWindow : Window
             ImageStorageKind.TgaInsertedFooterHeader => T("PreviewTgaRepaired"),
             ImageStorageKind.TgaRawPixels => T("PreviewTgaRawPixels"),
             ImageStorageKind.TgaUncompressed => T("PreviewTgaRaw"),
+            ImageStorageKind.CrossFireImageBin => T("PreviewImageBin"),
+            ImageStorageKind.CrossFireImageBinLzma => T("PreviewImageBinLzma"),
+            ImageStorageKind.CrossFireImageBinZstd => T("PreviewImageBinZstd"),
             _ => null
         };
     }
@@ -2779,6 +2824,8 @@ public partial class MainWindow : Window
         BrowseFolderButton.Content = T("BrowseFolder");
         ExtractAllButton.Content = T("ExtractAll");
         PackFolderButton.Content = T("PackFolder");
+        ClearThumbnailCacheButton.Content = T("ClearThumbnailCache");
+        ClearThumbnailCacheButton.ToolTip = T("ClearThumbnailCacheTooltip");
         ContentsHeaderText.Text = T("Contents");
         EmptyStateText.Text = T("EmptyFolder");
         OpenPreviewMenuItem.Header = T("OpenPreview");
@@ -2828,6 +2875,22 @@ public partial class MainWindow : Window
         return args.Length == 0
             ? T(key)
             : string.Format(CultureInfo.CurrentCulture, T(key), args);
+    }
+
+    private static string FormatByteSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        double value = bytes;
+        int unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        return unitIndex == 0
+            ? $"{value:N0} {units[unitIndex]}"
+            : $"{value:N1} {units[unitIndex]}";
     }
 
     private void SetStatus(string key, params object[] args)
@@ -3111,6 +3174,7 @@ public partial class MainWindow : Window
         WorkProgress.IsIndeterminate = isBusy;
         BrowseFolderButton.IsEnabled = !isBusy;
         PackFolderButton.IsEnabled = !isBusy;
+        ClearThumbnailCacheButton.IsEnabled = !isBusy;
         bool searchEnabled = !isBusy || keepSearchEnabled;
         SearchTextBox.IsEnabled = searchEnabled;
         ClearSearchButton.IsEnabled = searchEnabled && SearchTextBox.Text.Length > 0;
@@ -3122,6 +3186,7 @@ public partial class MainWindow : Window
     {
         BrowseFolderButton.IsEnabled = !_isBusy;
         PackFolderButton.IsEnabled = !_isBusy;
+        ClearThumbnailCacheButton.IsEnabled = !_isBusy;
         ExtractAllButton.IsEnabled = !_isBusy && _rootItem is not null && (_archiveCount > 0 || _extractableFileCount > 0);
     }
 

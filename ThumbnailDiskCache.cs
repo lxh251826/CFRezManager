@@ -8,6 +8,8 @@ namespace CFRezManager;
 
 internal sealed record CachedThumbnail(ImageSource Source, ImageStorageKind StorageKind);
 
+internal sealed record ThumbnailCacheClearResult(string CacheDirectory, int DeletedFileCount, long DeletedByteCount);
+
 internal static class ThumbnailDiskCache
 {
     private const string CacheVersion = "v1";
@@ -113,6 +115,52 @@ internal static class ThumbnailDiskCache
         {
             return false;
         }
+    }
+
+    public static ThumbnailCacheClearResult Clear()
+    {
+        string cacheDirectory = Path.GetFullPath(CacheDirectory);
+        string cacheRoot = Path.GetFullPath(Path.Combine(GetLocalApplicationDataPath(), "CFRezManager", "ThumbnailCache"));
+        string expectedPrefix = cacheRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+
+        if (!cacheDirectory.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Refusing to clear an unexpected thumbnail cache directory.");
+        }
+
+        if (!Directory.Exists(cacheDirectory))
+        {
+            return new ThumbnailCacheClearResult(cacheDirectory, 0, 0);
+        }
+
+        int deletedFileCount = 0;
+        long deletedByteCount = 0;
+        foreach (string filePath in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
+        {
+            var info = new FileInfo(filePath);
+            long length = info.Exists ? info.Length : 0;
+            File.Delete(filePath);
+            deletedFileCount++;
+            deletedByteCount += length;
+        }
+
+        foreach (string directoryPath in Directory
+                     .EnumerateDirectories(cacheDirectory, "*", SearchOption.AllDirectories)
+                     .OrderByDescending(path => path.Length))
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath);
+            }
+        }
+
+        if (Directory.Exists(cacheDirectory))
+        {
+            Directory.Delete(cacheDirectory);
+        }
+
+        return new ThumbnailCacheClearResult(cacheDirectory, deletedFileCount, deletedByteCount);
     }
 
     private static bool TryBuildCacheKey(ExplorerItem item, out string? key)

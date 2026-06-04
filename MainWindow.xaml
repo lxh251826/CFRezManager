@@ -335,6 +335,11 @@
                         Click="PackFolderButton_Click"
                         Padding="14,7"
                         Margin="0,0,8,0"/>
+                <Button x:Name="ClearThumbnailCacheButton"
+                        Content="清缩略图"
+                        Click="ClearThumbnailCacheButton_Click"
+                        Padding="14,7"
+                        Margin="0,0,8,0"/>
                 <ComboBox x:Name="LanguageComboBox"
                           Width="116"
                           Padding="8,6"

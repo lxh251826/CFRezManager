@@ -32,6 +32,7 @@ public enum ImageStorageKind
     LithTechWorldDatLzma,
     CrossFireDat,
     CrossFireDatLzma,
+    CrossFireScriptBin,
     LithTechSprite,
     LithTechSpriteLzma,
     AudioUncompressed,
@@ -44,6 +45,9 @@ public enum ImageStorageKind
     ConfigBinaryStrip,
     RasterUncompressed,
     RasterLzmaCompressed,
+    CrossFireImageBin,
+    CrossFireImageBinLzma,
+    CrossFireImageBinZstd,
     LithTechModel,
     LithTechModelLzma,
     FmodBank,
@@ -72,7 +76,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         "tiff",
         "dds",
         "tga",
-        "dtx"
+        "dtx",
+        "bin"
     };
 
     private static readonly HashSet<string> TextThumbnailExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -135,11 +140,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     public string? ThumbnailBadgeText => _imageStorageKind switch
     {
+        ImageStorageKind.CrossFireImageBinZstd => "ZSTD",
         ImageStorageKind.DtxLzmaCompressed or
         ImageStorageKind.TgaLzmaCompressed or
         ImageStorageKind.RasterLzmaCompressed or
+        ImageStorageKind.CrossFireImageBinLzma or
         ImageStorageKind.LithTechModelLzma or
         ImageStorageKind.FmodBankLzma => "LZMA",
+        ImageStorageKind.CrossFireImageBin => "BIN",
         ImageStorageKind.DdsBlockCompressed => "DXT",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FIX",
         ImageStorageKind.DtxUncompressed or
@@ -152,6 +160,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.LithTechWorldDatLzma => "LZMA",
         ImageStorageKind.CrossFireDat => "DAT",
         ImageStorageKind.CrossFireDatLzma => "LZMA",
+        ImageStorageKind.CrossFireScriptBin => "BIN",
         ImageStorageKind.LithTechSprite => "SPR",
         ImageStorageKind.LithTechSpriteLzma => "LZMA",
         ImageStorageKind.AudioUncompressed => "RAW",
@@ -168,11 +177,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     public string? CompactThumbnailBadgeText => _imageStorageKind switch
     {
+        ImageStorageKind.CrossFireImageBinZstd => "ZS",
         ImageStorageKind.DtxLzmaCompressed or
         ImageStorageKind.TgaLzmaCompressed or
         ImageStorageKind.RasterLzmaCompressed or
+        ImageStorageKind.CrossFireImageBinLzma or
         ImageStorageKind.LithTechModelLzma or
         ImageStorageKind.FmodBankLzma => "LZ",
+        ImageStorageKind.CrossFireImageBin => "BN",
         ImageStorageKind.DdsBlockCompressed => "DX",
         ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "FX",
         ImageStorageKind.DtxUncompressed or
@@ -185,6 +197,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
         ImageStorageKind.LithTechWorldDatLzma => "LZ",
         ImageStorageKind.CrossFireDat => "DT",
         ImageStorageKind.CrossFireDatLzma => "LZ",
+        ImageStorageKind.CrossFireScriptBin => "BC",
         ImageStorageKind.LithTechSprite => "SP",
         ImageStorageKind.LithTechSpriteLzma => "LZ",
         ImageStorageKind.AudioUncompressed => "R",
@@ -267,13 +280,25 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
             if (ArchiveFile is not null)
             {
-                if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or
+                if (_imageStorageKind is ImageStorageKind.CrossFireImageBinLzma)
+                {
+                    lines.Add("BIN storage: CF10/XOR encoded LZMA image");
+                }
+                else if (_imageStorageKind is ImageStorageKind.CrossFireImageBinZstd)
+                {
+                    lines.Add("BIN storage: Zstandard-compressed BGRA image");
+                }
+                else if (_imageStorageKind is ImageStorageKind.DtxLzmaCompressed or
                     ImageStorageKind.TgaLzmaCompressed or
                     ImageStorageKind.RasterLzmaCompressed or
                     ImageStorageKind.LithTechModelLzma or
                     ImageStorageKind.FmodBankLzma)
                 {
                     lines.Add($"{GetImageFormatLabel(_imageStorageKind)} storage: LZMA compressed");
+                }
+                else if (_imageStorageKind is ImageStorageKind.CrossFireImageBin)
+                {
+                    lines.Add("BIN storage: CF10/XOR encoded image");
                 }
                 else if (_imageStorageKind is ImageStorageKind.DtxUncompressed or
                          ImageStorageKind.TgaUncompressed or
@@ -322,6 +347,10 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 else if (_imageStorageKind is ImageStorageKind.CrossFireDatLzma)
                 {
                     lines.Add("DAT preview: LZMA-compressed CrossFire object data");
+                }
+                else if (_imageStorageKind is ImageStorageKind.CrossFireScriptBin)
+                {
+                    lines.Add("BIN preview: decoded CrossFire UI script table");
                 }
                 else if (_imageStorageKind is ImageStorageKind.LithTechSprite)
                 {
@@ -562,6 +591,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 LithTechModelDecoder.IsCandidate(extension) ||
                 LithTechWorldDatDecoder.IsCandidate(extension) ||
                 CrossFireDatDecoder.IsCandidate(extension) ||
+                CrossFireScriptBinDecoder.IsCandidate(Name, extension) ||
                 LithTechSpriteDecoder.IsCandidate(extension) ||
                 FmodBankDecoder.IsCandidate(extension));
     }
@@ -578,6 +608,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                (EncTextDecoder.IsCandidate(Name, extension) ||
                 CrossFireLtcDecoder.IsCandidate(extension) ||
                 CrossFireDatDecoder.IsCandidate(extension) ||
+                CrossFireScriptBinDecoder.IsCandidate(Name, extension) ||
                 LithTechSpriteDecoder.IsCandidate(extension) ||
                 FmodBankDecoder.IsCandidate(extension) ||
                 ResourceTextDecoder.IsCandidate(Name, extension) ||
@@ -634,6 +665,14 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return LoadCrossFireDatThumbnail(data);
             }
 
+            if (CrossFireScriptBinDecoder.IsCandidate(Name, extension) &&
+                CrossFireScriptBinDecoder.TryDecode(data, Name, out CrossFireScriptBinDocument? scriptBinDocument, out _) &&
+                scriptBinDocument is not null)
+            {
+                SetImageStorageKind(ImageStorageKind.CrossFireScriptBin);
+                return TextThumbnailRenderer.TryRender(Name, scriptBinDocument.Text, "BIN");
+            }
+
             if (LithTechSpriteDecoder.IsCandidate(extension))
             {
                 return LoadLithTechSpriteThumbnail(data);
@@ -676,6 +715,19 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             {
                 SetImageStorageKind(GetDtxStorageKind(data));
                 return DtxThumbnailDecoder.TryDecode(data);
+            }
+
+            if (CrossFireImageBinDecoder.IsCandidate(extension) ||
+                CrossFireImageBinDecoder.HasEncodedHeader(data))
+            {
+                if (CrossFireImageBinDecoder.TryDecodeThumbnail(data, out ImageSource? binImage, out ImageStorageKind binStorageKind) &&
+                    binImage is not null)
+                {
+                    SetImageStorageKind(binStorageKind);
+                    return binImage;
+                }
+
+                return null;
             }
 
             if (string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
@@ -1036,6 +1088,18 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                 return CreatePreviewFrames(DtxThumbnailDecoder.TryDecodeOriginal(data));
             }
 
+            if (CrossFireImageBinDecoder.IsCandidate(extension) ||
+                CrossFireImageBinDecoder.HasEncodedHeader(data))
+            {
+                IReadOnlyList<ImagePreviewFrame> frames = CrossFireImageBinDecoder.TryDecodePreviewFrames(data, out ImageStorageKind binStorageKind);
+                if (frames.Count > 0)
+                {
+                    SetImageStorageKind(binStorageKind);
+                }
+
+                return frames;
+            }
+
             if (string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
             {
                 SetImageStorageKind(GetTgaStorageKind(data));
@@ -1116,6 +1180,22 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     TextPreviewStorageKind.CrossFireDat,
                     datDocument.SourceByteCount,
                     datDocument.DecodedByteCount);
+            }
+
+            if (CrossFireScriptBinDecoder.IsCandidate(Name, extension))
+            {
+                if (!CrossFireScriptBinDecoder.TryDecode(data, Name, out CrossFireScriptBinDocument? scriptBinDocument, out _) ||
+                    scriptBinDocument is null)
+                {
+                    return null;
+                }
+
+                return new TextPreviewDocument(
+                    scriptBinDocument.Text,
+                    scriptBinDocument.Description,
+                    TextPreviewStorageKind.ResourceDecoded,
+                    scriptBinDocument.SourceByteCount,
+                    scriptBinDocument.DecodedByteCount);
             }
 
             if (LithTechSpriteDecoder.IsCandidate(extension))
@@ -1647,6 +1727,8 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             ImageStorageKind.DdsBlockCompressed or ImageStorageKind.DdsUncompressed => "DDS",
             ImageStorageKind.TgaLzmaCompressed or ImageStorageKind.TgaUncompressed or ImageStorageKind.TgaInsertedFooterHeader or ImageStorageKind.TgaRawPixels => "TGA",
             ImageStorageKind.RasterLzmaCompressed or ImageStorageKind.RasterUncompressed => "Image",
+            ImageStorageKind.CrossFireImageBin or ImageStorageKind.CrossFireImageBinLzma or ImageStorageKind.CrossFireImageBinZstd => "BIN image",
+            ImageStorageKind.CrossFireScriptBin => "BIN",
             ImageStorageKind.LithTechModelLzma or ImageStorageKind.LithTechModel => "Model",
             ImageStorageKind.LithTechWorldDat or ImageStorageKind.LithTechWorldDatLzma or ImageStorageKind.CrossFireDat or ImageStorageKind.CrossFireDatLzma => "DAT",
             ImageStorageKind.LithTechSprite or ImageStorageKind.LithTechSpriteLzma => "SPR",

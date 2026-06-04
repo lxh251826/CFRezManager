@@ -21,7 +21,7 @@ dotnet build .\CFRezManager.csproj
 Run the app from Visual Studio, or start the built executable:
 
 ```text
-bin\Debug\net8.0-windows\CFRezManager.exe
+bin\Debug\net8.0-windows7.0\CFRezManager.exe
 ```
 
 ## Release
@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 The repository includes a GitHub Actions release workflow. Pushing a `v*` tag builds a Windows x64 self-contained single-file package and creates a GitHub Release.
 
 ```powershell
-git tag v1.1.3
+git tag v1.1.4
 git push origin main
-git push origin v1.1.3
+git push origin v1.1.4
 ```
 
 ## Browse REZ Archives
@@ -51,10 +51,11 @@ After selecting files in search results or a normal folder, use the right-click 
 
 ## Preview Support
 
-- PNG, JPG, BMP, GIF, TIFF, DDS, TGA, and DTX images lazy-load thumbnails.
+- PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, and supported CrossFire BIN images lazy-load thumbnails.
 - DDS decoding covers DXT1/DXT3/DXT5 block-compressed textures plus common uncompressed RGB, RGBA, and luminance textures.
 - DTX and TGA decoding covers plain textures, LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
 - Common raster image formats can preview both plain files and LZMA-compressed resources.
+- CrossFire BIN images support the newer 16-byte header plus Zstandard-compressed BGRA32 pixel container, and the older CF10/XOR image wrapper fallback. Validated UI samples decode as `CrossFireImageBinZstd`.
 - DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
 - The image preview window supports previous/next navigation across the current image list, using either the toolbar buttons or the left/right arrow keys.
 - WAV, OGG, and MP3 audio files support waveform thumbnails and double-click audio preview.
@@ -69,8 +70,9 @@ After selecting files in search results or a normal folder, use the right-click 
 - LTA files support both `lt-model` model text and `world` map text. World `polyhedron`, `pointlist`, and `editpoly/f` face indices are converted into previewable map meshes.
 - DAT files support common CrossFire map and object previews. LithTech world DAT v85 files can render map-model thumbnails and open the model preview window. CrossFire object DAT files decode into text previews for `Zoneman`, `EnvSound`, `MovePath`, and `CameraAnimation`.
 - CFT, FCF, FXF, FXO, NAV, APF, REF, TXT, and selected WAVE resources can decode into readable text or metadata previews, including common LZMA-compressed forms.
+- CrossFire UI script `.bin` files such as `WeaponPreview` and `WeaponModel` entries can be decoded as structured binary configuration tables.
 - LZMA-compressed resources show an `LZMA` badge in the thumbnail corner.
-- Generated thumbnails are cached under the current Windows user profile. Reopening the same loose files or unchanged REZ entries can reuse the cached PNG instead of decoding and rendering the resource again.
+- Generated thumbnails are cached under the current Windows user profile. Reopening the same loose files or unchanged REZ entries can reuse the cached PNG instead of decoding and rendering the resource again. Use `Clear Cache` to remove stale thumbnail PNGs when resource formats change.
 
 ## Model Preview Controls
 
@@ -129,14 +131,24 @@ The selected folder's contents become the root contents of the new REZ archive. 
 The WPF executable also exposes focused batch commands for asset pipeline work:
 
 ```powershell
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
 ```
 
 - `--export-obj` exports LithTech model parts to OBJ/MTL, groups numbered sibling models, resolves texture candidates through CFG mappings, and writes texture/mapping reports next to the OBJ.
 - `--scan-cfg` scans CFG files, identifies readable text and LZMA text, extracts texture references, and writes TXT/CSV reports.
 - `--decode-cfg` retries failed CFGs, writes decoded text when a supported path succeeds, renders binary RGB-strip CFG previews, and classifies high-entropy launcher/protection configs separately.
+
+## v1.1.4 Changes
+
+- Added CrossFire BIN image preview support for the newer `16-byte header + Zstandard + BGRA32 pixels` container used by updated UI assets.
+- Kept BIN image fallback support for CF10/XOR-wrapped image payloads.
+- Added structured previews for CrossFire UI script BIN configuration tables, including `WeaponPreview` entries and `WeaponModel` tables.
+- Added BIN texture lookup support for model texture references and CFG texture mapping workflows.
+- Added a thumbnail cache clear command so stale cached previews can be removed after resource format changes.
+- Validated the new BIN image decoder against 2,671 UI samples with 2,671 successful preview decodes and 0 failures.
+- Updated Chinese and English documentation plus GitHub Release notes, bumped the application version to `v1.1.4`, and closes #1.
 
 ## v1.1.3 Changes
 
@@ -224,6 +236,8 @@ dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Ext
 - `BankLzmaAloneDecoder.cs`: Retained legacy BANK LZMA decoder for rollback and comparison.
 - `ResourceTextDecoder.cs`: Decodes additional text-like CrossFire resource formats.
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`: Image and texture preview decoding.
+- `CrossFireImageBinDecoder.cs`: CrossFire BIN image decoding for Zstandard-compressed BGRA32 images and CF10/XOR-wrapped image payloads.
+- `CrossFireScriptBinDecoder.cs`: CrossFire UI script BIN table decoding for WeaponPreview and WeaponModel resources.
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`: SPR sprite parsing and animation frame loading.
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`: LTC text and model preview decoding.
 - `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`: LithTech model, LTB/LTA world parsing, texture lookup, and rendering.

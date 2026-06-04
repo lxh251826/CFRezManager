@@ -10,7 +10,7 @@ internal static class LithTechModelTextureLoader
     private const int MaxTextureBytes = 64 * 1024 * 1024;
     private const int MaxLocalTextureSearchParentDepth = 5;
     private const int MaxLocalTextureSearchVisitedFiles = 200_000;
-    private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp"];
+    private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp", ".bin"];
     private static readonly ConditionalWeakTable<RezArchive, Dictionary<string, RezFileNode>> ArchiveFileLookupCache = new();
 
     public static Func<string, ImageSource?>? CreateResolver(ExplorerItem item)
@@ -454,6 +454,16 @@ internal static class LithTechModelTextureLoader
 
     private static ImageSource? TryDecodeTexture(string extension, byte[] data)
     {
+        if (CrossFireImageBinDecoder.IsCandidate(extension) ||
+            CrossFireImageBinDecoder.HasEncodedHeader(data))
+        {
+            ImageSource? image = CrossFireImageBinDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
+        }
+
         if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
         {
             return DtxThumbnailDecoder.TryDecodeOriginal(data);

@@ -21,7 +21,7 @@ dotnet build .\CFRezManager.csproj
 可以从 Visual Studio 运行，也可以启动构建后的程序：
 
 ```text
-bin\Debug\net8.0-windows\CFRezManager.exe
+bin\Debug\net8.0-windows7.0\CFRezManager.exe
 ```
 
 ## 发布
@@ -29,9 +29,9 @@ bin\Debug\net8.0-windows\CFRezManager.exe
 项目包含 GitHub Actions 发布流程。推送 `v*` 标签后会自动构建 Windows x64 自包含单文件包，并创建 GitHub Release。
 
 ```powershell
-git tag v1.1.3
+git tag v1.1.4
 git push origin main
-git push origin v1.1.3
+git push origin v1.1.4
 ```
 
 ## 浏览 REZ 资源包
@@ -51,10 +51,11 @@ git push origin v1.1.3
 
 ## 预览能力
 
-- PNG、JPG、BMP、GIF、TIFF、DDS、TGA、DTX 图片会懒加载缩略图。
+- PNG、JPG、BMP、GIF、TIFF、DDS、TGA、DTX 以及支持的 CrossFire BIN 图片会懒加载缩略图。
 - DDS 支持 DXT1/DXT3/DXT5 块压缩纹理，也支持常见未压缩 RGB、RGBA 和亮度纹理。
 - DTX 和 TGA 支持普通纹理、CrossFire 常见 LZMA 压缩纹理，以及部分缺失或错位 TGA 头的原始像素纹理。
 - 常见图片格式支持普通文件和 LZMA 压缩文件预览。
+- CrossFire BIN 图片支持新版 `16 字节头 + Zstandard + BGRA32 像素` 容器，也保留旧的 CF10/XOR 图片外壳兜底。已验证的 UI 样本会识别为 `CrossFireImageBinZstd`。
 - DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被强制拉伸，过大时可以滚动查看。
 - 图片预览窗口支持同目录/同列表内的上一张、下一张导航，可用按钮或左右方向键切换。
 - WAV、OGG、MP3 音频支持元数据解析、波形缩略图和双击预览。
@@ -69,8 +70,9 @@ git push origin v1.1.3
 - LTA 支持 `lt-model` 模型文本，也支持 `world` 地图文本，`polyhedron` 的点表和面索引会被转换为可预览网格。
 - DAT 支持常见 CrossFire 地图和对象预览。LithTech world DAT v85 可以渲染地图模型缩略图并打开模型预览窗口；CrossFire 对象 DAT 会解码为文本预览，当前支持 `Zoneman`、`EnvSound`、`MovePath` 和 `CameraAnimation`。
 - CFT、FCF、FXF、FXO、NAV、APF、REF、TXT 以及部分 WAVE 资源可以解码为可读文本或元数据预览，包含常见 LZMA 压缩形式。
+- CrossFire UI 脚本 `.bin` 文件支持结构化二进制配置表预览，包括 `WeaponPreview` 条目和 `WeaponModel` 表。
 - LZMA 压缩资源会在缩略图角标显示 `LZMA`。
-- 生成过的缩略图会缓存在当前 Windows 用户目录下。再次打开相同散文件或未变化的 REZ 内部资源时，可以直接复用缓存 PNG，避免重复解码和渲染。
+- 生成过的缩略图会缓存在当前 Windows 用户目录下。再次打开相同散文件或未变化的 REZ 内部资源时，可以直接复用缓存 PNG，避免重复解码和渲染。资源格式变化后，可以使用 `清缩略图` 清除过期缓存 PNG。
 
 ## 模型预览操作
 
@@ -129,14 +131,24 @@ git push origin v1.1.3
 WPF 程序也提供几个面向资产流程的批处理入口：
 
 ```powershell
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
-dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --export-obj --root "F:\Game\CrossFire" --model "PV-AK47_Balance" --output ".\out\PV-AK47_Balance.obj"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --scan-cfg --root "C:\Extracted\cfg"
+dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\Extracted\cfg"
 ```
 
 - `--export-obj` 会把 LithTech 模型部件导出为 OBJ/MTL，自动合并带序号的同组模型，按 CFG 映射解析贴图候选，并在 OBJ 旁写出贴图和映射报告。
 - `--scan-cfg` 会扫描 CFG，识别可读文本和 LZMA 文本，提取贴图引用，并输出 TXT/CSV 报告。
 - `--decode-cfg` 会重试失败 CFG，支持可还原文本落盘、二进制 RGB 条带预览图导出，以及高熵启动器/保护组件配置分类。
+
+## v1.1.4 更新
+
+- 新增 CrossFire BIN 图片预览，支持更新后 UI 资源使用的 `16 字节头 + Zstandard + BGRA32 像素` 容器。
+- 保留 CF10/XOR 外壳图片 BIN 的兜底解码路径。
+- 新增 CrossFire UI 脚本 BIN 配置表结构化预览，包括 `WeaponPreview` 条目和 `WeaponModel` 表。
+- 模型贴图引用和 CFG 贴图映射流程现在也会把 BIN 作为贴图候选。
+- 新增缩略图缓存清理按钮，资源格式变化后可以移除旧的缓存预览图。
+- 新版 BIN 图片解码器已用 2,671 个 UI 样本全量验证，2,671 个全部成功生成预览，失败 0 个。
+- 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.4`，并关闭 #1。
 
 ## v1.1.3 更新
 
@@ -224,6 +236,8 @@ dotnet .\bin\Release\net8.0-windows\CFRezManager.dll --decode-cfg --root "C:\Ext
 - `BankLzmaAloneDecoder.cs`：保留的旧 BANK LZMA 解码实现，用于回退和对比。
 - `ResourceTextDecoder.cs`：更多文本类 CrossFire 资源解码。
 - `DtxThumbnailDecoder.cs` / `TgaThumbnailDecoder.cs` / `DdsThumbnailDecoder.cs`：图片和纹理预览解码。
+- `CrossFireImageBinDecoder.cs`：CrossFire BIN 图片解码，支持 Zstandard 压缩 BGRA32 图片和 CF10/XOR 图片外壳。
+- `CrossFireScriptBinDecoder.cs`：CrossFire UI 脚本 BIN 表解码，支持 WeaponPreview 和 WeaponModel 资源。
 - `LithTechSpriteDecoder.cs` / `LithTechSpritePreviewLoader.cs`：SPR 动态精灵解析和动画帧加载。
 - `CrossFireLtcDecoder.cs` / `LithTechLtcNativeDecoder.cs`：LTC 文本和模型预览解码。
 - `LithTechModelDecoder.cs` / `LithTechModelThumbnailRenderer.cs` / `LithTechModelSceneBuilder.cs` / `LithTechModelTextureLoader.cs`：LithTech 模型、LTB/LTA world 解析、贴图查找和渲染。
