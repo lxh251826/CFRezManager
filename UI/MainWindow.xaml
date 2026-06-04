@@ -7,6 +7,7 @@
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         mc:Ignorable="d"
         Title="CF Rez Manager" Height="760" Width="1180" MinHeight="560" MinWidth="900"
+        Background="{DynamicResource AppWindowBrush}"
         PreviewMouseDown="Window_PreviewMouseDown">
     <Window.Resources>
         <sys:Double x:Key="TileItemWidthValue">136</sys:Double>
@@ -23,6 +24,7 @@
         <Style x:Key="BreadcrumbButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Margin" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -42,23 +44,23 @@
             </Border>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="ItemBorder" Property="Background" Value="#F1F5F9"/>
-                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#D7DCE2"/>
+                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AppItemHoverBrush}"/>
+                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AppItemHoverBorderBrush}"/>
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
-                    <Setter TargetName="ItemBorder" Property="Background" Value="#E8F1FE"/>
-                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#7AA7E8"/>
+                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AppSelectionBrush}"/>
+                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
                 </Trigger>
                 <MultiTrigger>
                     <MultiTrigger.Conditions>
                         <Condition Property="IsSelected" Value="True"/>
                         <Condition Property="IsMouseOver" Value="True"/>
                     </MultiTrigger.Conditions>
-                    <Setter TargetName="ItemBorder" Property="Background" Value="#DCEBFD"/>
-                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#5B8FD8"/>
+                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AppSelectionHoverBrush}"/>
+                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
                 </MultiTrigger>
                 <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#4F83D1"/>
+                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter Property="Opacity" Value="0.55"/>
@@ -130,12 +132,12 @@
                       Visibility="Collapsed">
                     <Border Width="{DynamicResource TileFilePageWidthValue}"
                             Height="{DynamicResource TileFilePageHeightValue}"
-                            Background="#FFFFFF"
-                            BorderBrush="#BFC6D1"
+                            Background="{DynamicResource AppFilePageBrush}"
+                            BorderBrush="{DynamicResource AppButtonBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="2">
                         <TextBlock Text="FILE"
-                                   Foreground="#6B7280"
+                                   Foreground="{DynamicResource AppSubtleTextBrush}"
                                    FontSize="10"
                                    FontWeight="SemiBold"
                                    HorizontalAlignment="Center"
@@ -146,16 +148,16 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Margin="0,4,6,0"
-                            Background="#E5E7EB"
-                            BorderBrush="#BFC6D1"
+                            Background="{DynamicResource AppFileFoldBrush}"
+                            BorderBrush="{DynamicResource AppButtonBorderBrush}"
                             BorderThickness="0,0,1,1"/>
                 </Grid>
 
                 <Border x:Name="ThumbnailFrame"
                         Width="{DynamicResource TileIconSizeValue}"
                         Height="{DynamicResource TileIconSizeValue}"
-                        Background="#FFFFFF"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource AppThumbnailBackgroundBrush}"
+                        BorderBrush="{DynamicResource AppButtonBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="3"
                         Padding="2"
@@ -166,7 +168,7 @@
                         <Image Source="{Binding ThumbnailSource}"
                                Stretch="Uniform"/>
                         <Border x:Name="ThumbnailBadge"
-                                Background="#D9111827"
+                                Background="{DynamicResource AppBadgeBrush}"
                                 CornerRadius="2"
                                 Padding="3,1"
                                 HorizontalAlignment="Right"
@@ -230,12 +232,12 @@
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center"
                       Visibility="Collapsed">
-                    <Border Background="#FFFFFF"
-                            BorderBrush="#BFC6D1"
+                    <Border Background="{DynamicResource AppFilePageBrush}"
+                            BorderBrush="{DynamicResource AppButtonBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="1"/>
                     <TextBlock Text="F"
-                               Foreground="#6B7280"
+                               Foreground="{DynamicResource AppSubtleTextBrush}"
                                FontSize="10"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"
@@ -245,8 +247,8 @@
                 <Border x:Name="ListThumbnailFrame"
                         Width="28"
                         Height="28"
-                        Background="#FFFFFF"
-                        BorderBrush="#CBD5E1"
+                        Background="{DynamicResource AppThumbnailBackgroundBrush}"
+                        BorderBrush="{DynamicResource AppButtonBorderBrush}"
                         BorderThickness="1"
                         CornerRadius="2"
                         Padding="1"
@@ -257,7 +259,7 @@
                         <Image Source="{Binding ThumbnailSource}"
                                Stretch="Uniform"/>
                         <Border x:Name="ListThumbnailBadge"
-                                Background="#D9111827"
+                                Background="{DynamicResource AppBadgeBrush}"
                                 CornerRadius="1"
                                 Padding="1,0"
                                 HorizontalAlignment="Right"
@@ -280,14 +282,14 @@
 
                 <TextBlock Grid.Column="2"
                            Text="{Binding LocationText}"
-                           Foreground="#6B7280"
+                           Foreground="{DynamicResource AppSubtleTextBrush}"
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"
                            Margin="0,0,10,0"/>
 
                 <TextBlock Grid.Column="3"
                            Text="{Binding SizeText}"
-                           Foreground="#4B5563"
+                           Foreground="{DynamicResource AppMutedTextBrush}"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Right"
                            MinWidth="86"
@@ -309,7 +311,7 @@
         </DataTemplate>
     </Window.Resources>
 
-    <Grid Margin="12">
+    <Grid Margin="12" Background="{DynamicResource AppWindowBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -335,19 +337,11 @@
                         Click="PackFolderButton_Click"
                         Padding="14,7"
                         Margin="0,0,8,0"/>
-                <Button x:Name="ClearThumbnailCacheButton"
-                        Content="清缩略图"
-                        Click="ClearThumbnailCacheButton_Click"
+                <Button x:Name="SettingsButton"
+                        Content="设置..."
+                        Click="SettingsButton_Click"
                         Padding="14,7"
                         Margin="0,0,8,0"/>
-                <ComboBox x:Name="LanguageComboBox"
-                          Width="116"
-                          Padding="8,6"
-                          VerticalContentAlignment="Center"
-                          SelectionChanged="LanguageComboBox_SelectionChanged">
-                    <ComboBoxItem Content="中文" Tag="zh"/>
-                    <ComboBoxItem Content="English" Tag="en"/>
-                </ComboBox>
             </StackPanel>
 
             <StackPanel DockPanel.Dock="Right"
@@ -380,9 +374,9 @@
         </DockPanel>
 
         <Border Grid.Row="1"
-                BorderBrush="#D7DCE2"
+                BorderBrush="{DynamicResource AppBorderBrush}"
                 BorderThickness="1"
-                Background="#F8FAFC"
+                Background="{DynamicResource AppSurfaceBrush}"
                 Margin="0,0,0,10">
             <ScrollViewer HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled">
@@ -392,16 +386,19 @@
             </ScrollViewer>
         </Border>
 
-        <Border Grid.Row="2" BorderBrush="#D7DCE2" BorderThickness="1">
-            <DockPanel>
+        <Border Grid.Row="2"
+                BorderBrush="{DynamicResource AppBorderBrush}"
+                BorderThickness="1"
+                Background="{DynamicResource AppSurfaceBrush}">
+            <DockPanel Background="{DynamicResource AppSurfaceBrush}">
                 <TextBlock x:Name="ContentsHeaderText"
                            DockPanel.Dock="Top"
                            Text="内容"
                            FontWeight="SemiBold"
                            Padding="10,8"
-                           Background="#F5F7FA"/>
+                           Background="{DynamicResource AppSurfaceAltBrush}"/>
 
-                <Grid>
+                <Grid Background="{DynamicResource AppSurfaceBrush}">
                     <ListBox x:Name="ContentsList"
                              MouseDoubleClick="ContentsList_MouseDoubleClick"
                              PreviewMouseLeftButtonDown="ContentsList_PreviewMouseLeftButtonDown"
@@ -409,6 +406,8 @@
                              PreviewMouseLeftButtonUp="ContentsList_PreviewMouseLeftButtonUp"
                              PreviewMouseRightButtonDown="ContentsList_PreviewMouseRightButtonDown"
                              LostMouseCapture="ContentsList_LostMouseCapture"
+                             Background="{DynamicResource AppSurfaceBrush}"
+                             Foreground="{DynamicResource AppTextBrush}"
                              BorderThickness="0"
                              ItemTemplate="{StaticResource ExplorerIconTemplate}"
                              ItemContainerStyle="{StaticResource ExplorerTileItemStyle}"
@@ -449,8 +448,8 @@
                             IsHitTestVisible="False"
                             ClipToBounds="True">
                         <Border x:Name="SelectionBox"
-                                Background="#334F83D1"
-                                BorderBrush="#4F83D1"
+                                Background="{DynamicResource AppSelectionOverlayBrush}"
+                                BorderBrush="{DynamicResource AppAccentBrush}"
                                 BorderThickness="1"
                                 Visibility="Collapsed"/>
                     </Canvas>
@@ -470,7 +469,7 @@
                                    HorizontalAlignment="Center"
                                    Margin="0,10,0,0"
                                    FontSize="15"
-                                   Foreground="#6B7280"/>
+                                   Foreground="{DynamicResource AppSubtleTextBrush}"/>
                     </StackPanel>
                 </Grid>
             </DockPanel>
@@ -507,7 +506,7 @@
                          Visibility="Collapsed"/>
             <TextBlock x:Name="StatusText"
                        Text="就绪"
-                       Foreground="#4B5563"
+                       Foreground="{DynamicResource AppMutedTextBrush}"
                        VerticalAlignment="Center"/>
         </DockPanel>
     </Grid>

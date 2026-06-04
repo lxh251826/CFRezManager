@@ -1,0 +1,114 @@
+<Window x:Class="CFRezManager.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="&#x8BBE;&#x7F6E;"
+        Width="420"
+        Height="304"
+        MinWidth="380"
+        MinHeight="288"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource AppWindowBrush}">
+    <Grid Background="{DynamicResource AppWindowBrush}" Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TitleText"
+                   Text="&#x8BBE;&#x7F6E;"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,16"/>
+
+        <Grid Grid.Row="1" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="96"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="LanguageLabelText"
+                       Text="&#x8BED;&#x8A00;"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,10"/>
+            <Grid Grid.Column="1" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="ChineseLanguageButton"
+                        Content="&#x4E2D;&#x6587;"
+                        Tag="zh"
+                        Padding="12,7"
+                        Click="LanguageButton_Click"/>
+                <Button x:Name="EnglishLanguageButton"
+                        Grid.Column="2"
+                        Content="English"
+                        Tag="en"
+                        Padding="12,7"
+                        Click="LanguageButton_Click"/>
+            </Grid>
+
+            <TextBlock x:Name="ThemeLabelText"
+                       Grid.Row="1"
+                       Text="&#x4E3B;&#x9898;"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,10"/>
+            <Grid Grid.Row="1" Grid.Column="1" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="LightThemeButton"
+                        Content="&#x4EAE;&#x8272;"
+                        Tag="Light"
+                        Padding="12,7"
+                        Click="ThemeButton_Click"/>
+                <Button x:Name="DarkThemeButton"
+                        Grid.Column="2"
+                        Content="&#x6697;&#x8272;"
+                        Tag="Dark"
+                        Padding="12,7"
+                        Click="ThemeButton_Click"/>
+            </Grid>
+
+            <TextBlock x:Name="CacheLabelText"
+                       Grid.Row="2"
+                       Text="&#x7F13;&#x5B58;"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,0"/>
+            <Button x:Name="ClearThumbnailCacheButton"
+                    Grid.Row="2"
+                    Grid.Column="1"
+                    Content="&#x6E05;&#x9664;&#x7F29;&#x7565;&#x56FE;"
+                    MinHeight="34"
+                    Padding="14,7"
+                    Click="ClearThumbnailCacheButton_Click"/>
+        </Grid>
+
+        <TextBlock x:Name="CacheStatusText"
+                   Grid.Row="2"
+                   Foreground="{DynamicResource AppMutedTextBrush}"
+                   TextWrapping="Wrap"
+                   Margin="96,0,0,0"/>
+
+        <Button x:Name="CloseButton"
+                Grid.Row="3"
+                Content="&#x5173;&#x95ED;"
+                HorizontalAlignment="Right"
+                Padding="16,7"
+                Margin="0,14,0,0"
+                IsCancel="True"
+                Click="CloseButton_Click"/>
+    </Grid>
+</Window>

@@ -80,7 +80,7 @@ CFRezManager/
 3. Double-click a folder, REZ archive, internal REZ folder, or supported preview file.
 4. Use the breadcrumb bar to move back or jump to a parent location.
 
-Use the language selector in the top toolbar to switch between `中文` and `English`. The app remembers language, view size, scan folder, pack folder, extract folder, and save location.
+Click `Settings...` in the top toolbar to open the settings window, where you can switch between `Chinese` / `English`, `Light` / `Dark` themes, and clear the thumbnail cache. The app remembers language, theme, view size, scan folder, pack folder, extract folder, and save location.
 
 The search box builds an in-memory index the first time you type, then quickly filters scanned files, folders, and internal REZ paths. Separate keywords with spaces to require all terms to match.
 
@@ -97,12 +97,12 @@ Common right-click actions:
 
 - Images and textures: PNG, JPG, BMP, GIF, TIFF, DDS, TGA, DTX, CrossFire image BIN, original-size preview, and previous/next navigation.
 - Compressed resources: common LZMA-wrapped resources, with thumbnail badges such as `RAW`, `LZMA`, `DXT`, and `TXT`.
-- Audio: WAV, OGG, MP3, and FMOD `.bank`, with waveform thumbnails, track list, playback controls, seeking, and dynamic spectrum display.
+- Audio: WAV, OGG, MP3, and FMOD `.bank`, with waveform thumbnails, track list, playback controls, seeking, and dynamic spectrum display. OGG/MP3 previews decode to PCM before spectrum rendering so normal audio files behave more like FMOD BANK streams.
 - Models and maps: LTC, LTB, LTA, DAT, and SPR, with thumbnails and standalone preview windows; SPR can autoplay animation frames.
 - Text and config resources: CFT, FCF, FXF, FXO, NAV, APF, REF, TXT, selected WAVE resources, CrossFire UI script `.bin`, and CFG.
 - CFG batch work: scan texture references, classify failed decodes, and render previews for binary RGB-strip CFG files.
 
-Generated thumbnails are cached under the current Windows user profile. Use `Clear Cache` after replacing resources to remove stale thumbnails.
+Generated thumbnails are cached in the `ThumbnailCache` folder under the program directory instead of the current Windows user profile disk. On startup, the app tries to remove the old user-profile thumbnail cache; use `Clear Cache` in `Settings` after replacing resources to remove current stale thumbnails.
 
 ## Model Preview Controls
 

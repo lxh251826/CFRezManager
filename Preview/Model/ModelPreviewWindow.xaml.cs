@@ -36,6 +36,7 @@ public partial class ModelPreviewWindow : Window
         Func<string, ImageSource?>? textureResolver = null)
     {
         InitializeComponent();
+        WindowThemeHelper.Apply(this, ThemeManager.Parse(UserSettings.Load().Theme));
 
         Rect workArea = SystemParameters.WorkArea;
         MaxWidth = Math.Max(MinWidth, workArea.Width - 80);

@@ -55,6 +55,7 @@ public partial class ImagePreviewWindow : Window
         }
 
         InitializeComponent();
+        WindowThemeHelper.Apply(this, ThemeManager.Parse(UserSettings.Load().Theme));
 
         _loadDocumentAsync = loadDocumentAsync;
         _documentCount = Math.Max(1, documentCount);

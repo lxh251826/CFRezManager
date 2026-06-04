@@ -34,6 +34,7 @@ public partial class App : System.Windows.Application
         if (PreviewTool.IsPreviewInvocation(e.Args))
         {
             LocalizedText.UseSavedLanguage();
+            ThemeManager.ApplySavedTheme();
             string? errorMessage = null;
             if (PreviewTool.TryGetPreviewPath(e.Args, out string previewPath) &&
                 PreviewTool.TryCreateWindow(previewPath, out System.Windows.Window? previewWindow, out errorMessage) &&
@@ -54,6 +55,10 @@ public partial class App : System.Windows.Application
 
             return;
         }
+
+        LocalizedText.UseSavedLanguage();
+        ThemeManager.ApplySavedTheme();
+        ThumbnailDiskCache.TryClearLegacyCache();
 
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;

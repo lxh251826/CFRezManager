@@ -7,6 +7,7 @@ public partial class TextPreviewWindow : Window
     public TextPreviewWindow(string fileName, string text, string? textInfo = null)
     {
         InitializeComponent();
+        WindowThemeHelper.Apply(this, ThemeManager.Parse(UserSettings.Load().Theme));
 
         Rect workArea = SystemParameters.WorkArea;
         MaxWidth = Math.Max(MinWidth, workArea.Width - 80);

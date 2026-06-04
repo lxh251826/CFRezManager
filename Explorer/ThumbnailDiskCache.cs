@@ -16,11 +16,18 @@ internal static class ThumbnailDiskCache
     private const string ImageExtension = ".png";
     private const string MetadataExtension = ".kind";
 
+    private static readonly string CacheRootDirectory = Path.Combine(
+        GetApplicationBaseDirectory(),
+        "ThumbnailCache");
+
     private static readonly string CacheDirectory = Path.Combine(
+        CacheRootDirectory,
+        CacheVersion);
+
+    private static readonly string LegacyCacheRootDirectory = Path.Combine(
         GetLocalApplicationDataPath(),
         "CFRezManager",
-        "ThumbnailCache",
-        CacheVersion);
+        "ThumbnailCache");
 
     public static bool TryLoad(ExplorerItem item, out CachedThumbnail? thumbnail)
     {
@@ -119,15 +126,33 @@ internal static class ThumbnailDiskCache
 
     public static ThumbnailCacheClearResult Clear()
     {
-        string cacheDirectory = Path.GetFullPath(CacheDirectory);
-        string cacheRoot = Path.GetFullPath(Path.Combine(GetLocalApplicationDataPath(), "CFRezManager", "ThumbnailCache"));
-        string expectedPrefix = cacheRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
-            Path.DirectorySeparatorChar;
+        return ClearDirectory(CacheDirectory, CacheRootDirectory);
+    }
 
-        if (!cacheDirectory.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
+    public static void TryClearLegacyCache()
+    {
+        try
         {
-            throw new InvalidOperationException("Refusing to clear an unexpected thumbnail cache directory.");
+            string legacyCacheRoot = Path.GetFullPath(LegacyCacheRootDirectory);
+            string currentCacheRoot = Path.GetFullPath(CacheRootDirectory);
+            if (string.Equals(legacyCacheRoot, currentCacheRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            string legacyParent = Path.Combine(GetLocalApplicationDataPath(), "CFRezManager");
+            ClearDirectory(legacyCacheRoot, legacyParent);
         }
+        catch
+        {
+            // Migrating the cache location must never stop the application from starting.
+        }
+    }
+
+    private static ThumbnailCacheClearResult ClearDirectory(string directory, string expectedParentDirectory)
+    {
+        string cacheDirectory = Path.GetFullPath(directory);
+        EnsureCacheDirectoryCanBeCleared(cacheDirectory, expectedParentDirectory);
 
         if (!Directory.Exists(cacheDirectory))
         {
@@ -161,6 +186,19 @@ internal static class ThumbnailDiskCache
         }
 
         return new ThumbnailCacheClearResult(cacheDirectory, deletedFileCount, deletedByteCount);
+    }
+
+    private static void EnsureCacheDirectoryCanBeCleared(string cacheDirectory, string expectedParentDirectory)
+    {
+        string parentDirectory = Path.GetFullPath(expectedParentDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string expectedPrefix = parentDirectory + Path.DirectorySeparatorChar;
+
+        if (!cacheDirectory.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(cacheDirectory, parentDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Refusing to clear an unexpected thumbnail cache directory.");
+        }
     }
 
     private static bool TryBuildCacheKey(ExplorerItem item, out string? key)
@@ -262,6 +300,13 @@ internal static class ThumbnailDiskCache
         return string.IsNullOrWhiteSpace(path)
             ? Path.GetTempPath()
             : path;
+    }
+
+    private static string GetApplicationBaseDirectory()
+    {
+        return string.IsNullOrWhiteSpace(AppContext.BaseDirectory)
+            ? Environment.CurrentDirectory
+            : AppContext.BaseDirectory;
     }
 
     private static void TryDelete(string path)

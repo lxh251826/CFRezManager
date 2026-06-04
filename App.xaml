@@ -3,6 +3,153 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:CFRezManager">
     <Application.Resources>
-         
+        <SolidColorBrush x:Key="AppWindowBrush" Color="#F8FAFC"/>
+        <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="AppSurfaceAltBrush" Color="#F5F7FA"/>
+        <SolidColorBrush x:Key="AppInputBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="AppBorderBrush" Color="#D7DCE2"/>
+        <SolidColorBrush x:Key="AppButtonBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="AppButtonHoverBrush" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="AppButtonPressedBrush" Color="#E5E7EB"/>
+        <SolidColorBrush x:Key="AppButtonBorderBrush" Color="#CBD5E1"/>
+        <SolidColorBrush x:Key="AppTextBrush" Color="#111827"/>
+        <SolidColorBrush x:Key="AppMutedTextBrush" Color="#4B5563"/>
+        <SolidColorBrush x:Key="AppSubtleTextBrush" Color="#6B7280"/>
+        <SolidColorBrush x:Key="AppItemHoverBrush" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="AppItemHoverBorderBrush" Color="#D7DCE2"/>
+        <SolidColorBrush x:Key="AppSelectionBrush" Color="#E8F1FE"/>
+        <SolidColorBrush x:Key="AppSelectionHoverBrush" Color="#DCEBFD"/>
+        <SolidColorBrush x:Key="AppSelectionBorderBrush" Color="#7AA7E8"/>
+        <SolidColorBrush x:Key="AppFilePageBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="AppFileFoldBrush" Color="#E5E7EB"/>
+        <SolidColorBrush x:Key="AppThumbnailBackgroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="AppBadgeBrush" Color="#D9111827"/>
+        <SolidColorBrush x:Key="AppSelectionOverlayBrush" Color="#334F83D1"/>
+        <SolidColorBrush x:Key="AppAccentBrush" Color="#4F83D1"/>
+
+        <Style TargetType="{x:Type Window}">
+            <Setter Property="Background" Value="{DynamicResource AppWindowBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+        </Style>
+
+        <Style TargetType="{x:Type TextBlock}">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+        </Style>
+
+        <Style TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="{DynamicResource AppButtonBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppButtonPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type TextBox}">
+            <Setter Property="Background" Value="{DynamicResource AppInputBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="SelectionBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TextBox}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Background="{TemplateBinding Background}"
+                                          Focusable="False"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                                          VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ToolTip}">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToolTip}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                TextElement.Foreground="{TemplateBinding Foreground}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter RecognizesAccessKey="True"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ListBox}">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+        </Style>
+
+        <Style TargetType="{x:Type ContextMenu}">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+        </Style>
+
+        <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+        </Style>
     </Application.Resources>
 </Application>

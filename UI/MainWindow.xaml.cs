@@ -153,6 +153,7 @@ public partial class MainWindow : Window
     private readonly HashSet<ExplorerItem> _dragInitialSelection = new();
     private List<SearchEntry> _searchIndex = new();
     private AppLanguage _language = AppLanguage.Chinese;
+    private AppTheme _theme = AppTheme.Light;
     private string _statusKey = "Ready";
     private object[] _statusArgs = [];
     private string _selectedDirectory = string.Empty;
@@ -168,6 +169,7 @@ public partial class MainWindow : Window
     private int _searchRequestVersion;
     private Task? _searchIndexTask;
     private ExplorerItem? _searchIndexTaskRoot;
+    private SettingsWindow? _settingsWindow;
 
     private readonly record struct ExtractionProgress(int Completed, int Total, string FileName);
     private readonly record struct ExtractionJob(ExplorerItem Item, string RelativePath, bool DecodeImageToPng);
@@ -339,8 +341,9 @@ public partial class MainWindow : Window
             ["PreviewImageBin"] = ("BIN - CF10/XOR \u56fe\u7247", "BIN - CF10/XOR image"),
             ["PreviewImageBinLzma"] = ("BIN - LZMA 外壳图片", "BIN - LZMA-wrapped image"),
             ["PreviewImageBinZstd"] = ("BIN - Zstandard \u538b\u7f29 BGRA \u56fe\u7247", "BIN - Zstandard BGRA image"),
+            ["Settings"] = ("\u8bbe\u7f6e...", "Settings..."),
             ["ClearThumbnailCache"] = ("\u6e05\u7f29\u7565\u56fe", "Clear Cache"),
-            ["ClearThumbnailCacheTooltip"] = ("\u5220\u9664\u5f53\u524d Windows \u7528\u6237\u76ee\u5f55\u4e0b\u7684\u7f29\u7565\u56fe\u78c1\u76d8\u7f13\u5b58", "Delete cached thumbnail PNGs under the current Windows user profile"),
+            ["ClearThumbnailCacheTooltip"] = ("\u5220\u9664\u7a0b\u5e8f\u76ee\u5f55\u4e0b\u7684\u7f29\u7565\u56fe\u78c1\u76d8\u7f13\u5b58", "Delete cached thumbnail PNGs under the program directory"),
             ["ClearingThumbnailCache"] = ("\u6b63\u5728\u6e05\u9664\u7f29\u7565\u56fe\u7f13\u5b58...", "Clearing thumbnail cache..."),
             ["ThumbnailCacheCleared"] = ("\u5df2\u6e05\u9664 {0:N0} \u4e2a\u7f29\u7565\u56fe\u7f13\u5b58\u6587\u4ef6\uff0c\u91ca\u653e {1}", "Cleared {0:N0} thumbnail cache files, freed {1}"),
             ["ThumbnailCacheEmpty"] = ("\u6ca1\u6709\u627e\u5230\u9700\u8981\u6e05\u9664\u7684\u7f29\u7565\u56fe\u7f13\u5b58", "No thumbnail cache files found"),
@@ -352,19 +355,21 @@ public partial class MainWindow : Window
     {
         _settings = UserSettings.Load();
         _language = ParseLanguage(_settings.Language);
+        _theme = ThemeManager.Parse(_settings.Theme);
         LocalizedText.SetLanguage(ToLanguageCode(_language));
+        ThemeManager.Apply(_theme);
         InitializeComponent();
-        LanguageComboBox.SelectedIndex = _language == AppLanguage.English ? 1 : 0;
+        WindowThemeHelper.Apply(this, _theme);
         ViewSizeSlider.Value = ClampViewSize(_settings.ViewSize);
         ApplyViewSize(ViewSizeSlider.Value);
         ApplyLanguage();
         LoadEmptyStateImage();
-        Loaded += MainWindow_Loaded;
+        ContentRendered += MainWindow_ContentRendered;
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_ContentRendered(object? sender, EventArgs e)
     {
-        Loaded -= MainWindow_Loaded;
+        ContentRendered -= MainWindow_ContentRendered;
 
         string? folder = SelectFolder(T("SelectRezFolderDescription"), FolderDialogKind.RezSource);
         if (folder is not null)
@@ -425,7 +430,64 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void ClearThumbnailCacheButton_Click(object sender, RoutedEventArgs e)
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        var window = new SettingsWindow(ToLanguageCode(_language), _theme)
+        {
+            Owner = this
+        };
+        window.LanguageChanged += SettingsWindow_LanguageChanged;
+        window.ThemeChanged += SettingsWindow_ThemeChanged;
+        window.ClearThumbnailCacheRequested += SettingsWindow_ClearThumbnailCacheRequested;
+        window.Closed += SettingsWindow_Closed;
+        _settingsWindow = window;
+        window.ShowDialog();
+    }
+
+    private void SettingsWindow_Closed(object? sender, EventArgs e)
+    {
+        if (sender is SettingsWindow window)
+        {
+            window.LanguageChanged -= SettingsWindow_LanguageChanged;
+            window.ThemeChanged -= SettingsWindow_ThemeChanged;
+            window.ClearThumbnailCacheRequested -= SettingsWindow_ClearThumbnailCacheRequested;
+            window.Closed -= SettingsWindow_Closed;
+        }
+
+        _settingsWindow = null;
+    }
+
+    private void SettingsWindow_LanguageChanged(string languageCode)
+    {
+        _language = ParseLanguage(languageCode);
+        LocalizedText.SetLanguage(ToLanguageCode(_language));
+        _settings.Language = ToLanguageCode(_language);
+        _settings.Save();
+        ApplyLanguage();
+    }
+
+    private void SettingsWindow_ThemeChanged(AppTheme theme)
+    {
+        _theme = theme;
+        ThemeManager.Apply(theme);
+        WindowThemeHelper.Apply(this, theme);
+        _settings.Theme = ThemeManager.ToSettingsValue(theme);
+        _settings.Save();
+        _settingsWindow?.ApplyTheme(theme);
+    }
+
+    private async void SettingsWindow_ClearThumbnailCacheRequested(object? sender, EventArgs e)
+    {
+        await ClearThumbnailCacheAsync();
+    }
+
+    private async Task ClearThumbnailCacheAsync()
     {
         if (_isBusy)
         {
@@ -433,28 +495,35 @@ public partial class MainWindow : Window
         }
 
         SetBusy(true);
+        _settingsWindow?.SetBusy(true);
 
         try
         {
             WorkProgress.IsIndeterminate = true;
             SetStatus("ClearingThumbnailCache");
+            _settingsWindow?.SetCacheStatus(T("ClearingThumbnailCache"));
 
             ThumbnailCacheClearResult result = await Task.Run(ThumbnailDiskCache.Clear);
             if (result.DeletedFileCount == 0)
             {
                 SetStatus("ThumbnailCacheEmpty");
+                _settingsWindow?.SetCacheStatus(T("ThumbnailCacheEmpty"));
                 return;
             }
 
-            SetStatus("ThumbnailCacheCleared", result.DeletedFileCount, FormatByteSize(result.DeletedByteCount));
+            string clearedText = FormatText("ThumbnailCacheCleared", result.DeletedFileCount, FormatByteSize(result.DeletedByteCount));
+            SetStatusText(clearedText);
+            _settingsWindow?.SetCacheStatus(clearedText);
         }
         catch (Exception ex)
         {
+            _settingsWindow?.SetCacheStatus($"{T("ClearThumbnailCacheFailed")}: {ex.Message}");
             ShowError("ClearThumbnailCacheFailed", ex);
         }
         finally
         {
             SetBusy(false);
+            _settingsWindow?.SetBusy(false);
         }
     }
 
@@ -2423,22 +2492,6 @@ public partial class MainWindow : Window
             : FormatText("CopySelectedNames", selectedItems.Count);
     }
 
-    private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (LanguageComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
-        {
-            return;
-        }
-
-        _language = string.Equals(tag, "en", StringComparison.OrdinalIgnoreCase)
-            ? AppLanguage.English
-            : AppLanguage.Chinese;
-        LocalizedText.SetLanguage(ToLanguageCode(_language));
-        _settings.Language = ToLanguageCode(_language);
-        _settings.Save();
-        ApplyLanguage();
-    }
-
     private async void SearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_suppressSearchTextChanged)
@@ -2825,8 +2878,7 @@ public partial class MainWindow : Window
         BrowseFolderButton.Content = T("BrowseFolder");
         ExtractAllButton.Content = T("ExtractAll");
         PackFolderButton.Content = T("PackFolder");
-        ClearThumbnailCacheButton.Content = T("ClearThumbnailCache");
-        ClearThumbnailCacheButton.ToolTip = T("ClearThumbnailCacheTooltip");
+        SettingsButton.Content = T("Settings");
         ContentsHeaderText.Text = T("Contents");
         EmptyStateText.Text = T("EmptyFolder");
         OpenPreviewMenuItem.Header = T("OpenPreview");
@@ -2847,6 +2899,7 @@ public partial class MainWindow : Window
         }
 
         RefreshStatusText();
+        _settingsWindow?.ApplyLanguage(ToLanguageCode(_language));
     }
 
     private static AppLanguage ParseLanguage(string? value)
@@ -3175,11 +3228,11 @@ public partial class MainWindow : Window
         WorkProgress.IsIndeterminate = isBusy;
         BrowseFolderButton.IsEnabled = !isBusy;
         PackFolderButton.IsEnabled = !isBusy;
-        ClearThumbnailCacheButton.IsEnabled = !isBusy;
+        SettingsButton.IsEnabled = !isBusy;
         bool searchEnabled = !isBusy || keepSearchEnabled;
         SearchTextBox.IsEnabled = searchEnabled;
         ClearSearchButton.IsEnabled = searchEnabled && SearchTextBox.Text.Length > 0;
-        ContentsList.IsEnabled = !isBusy;
+        ContentsList.IsHitTestVisible = !isBusy;
         UpdateCommandState();
     }
 
@@ -3187,7 +3240,7 @@ public partial class MainWindow : Window
     {
         BrowseFolderButton.IsEnabled = !_isBusy;
         PackFolderButton.IsEnabled = !_isBusy;
-        ClearThumbnailCacheButton.IsEnabled = !_isBusy;
+        SettingsButton.IsEnabled = !_isBusy;
         ExtractAllButton.IsEnabled = !_isBusy && _rootItem is not null && (_archiveCount > 0 || _extractableFileCount > 0);
     }
 
@@ -3828,7 +3881,7 @@ public partial class MainWindow : Window
                 BreadcrumbPanel.Children.Add(new TextBlock
                 {
                     Text = ">",
-                    Foreground = System.Windows.Media.Brushes.Gray,
+                    Foreground = (System.Windows.Media.Brush)FindResource("AppSubtleTextBrush"),
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(2, 0, 2, 0)
                 });

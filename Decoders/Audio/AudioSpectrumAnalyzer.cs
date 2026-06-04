@@ -23,7 +23,14 @@ internal static class AudioSpectrumAnalyzer
                 return true;
             }
 
-            if (!string.Equals(Path.GetExtension(audioPath), ".mp3", StringComparison.OrdinalIgnoreCase))
+            string extension = Path.GetExtension(audioPath);
+            if (string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase) &&
+                OggVorbisWaveDecoder.TryDecodeToWaveBytes(data, previewSeconds, out byte[] previewWave, out _))
+            {
+                return TryAnalyze(previewWave, bandCount, previewSeconds, out spectrum);
+            }
+
+            if (!string.Equals(extension, ".mp3", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -71,15 +78,22 @@ internal static class AudioSpectrumAnalyzer
                 return true;
             }
 
-            if (!string.Equals(Path.GetExtension(audioPath), ".mp3", StringComparison.OrdinalIgnoreCase))
+            string extension = Path.GetExtension(audioPath);
+            if (string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase) &&
+                OggVorbisWaveDecoder.TryDecodeToWaveBytes(data, out byte[] oggDecodedWave, out _))
+            {
+                return TryAnalyze(oggDecodedWave, bandCount, out spectrum);
+            }
+
+            if (!string.Equals(extension, ".mp3", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
             using var reader = new MediaFoundationReader(audioPath);
-            using var decodedWave = new MemoryStream();
-            WaveFileWriter.WriteWavFileToStream(decodedWave, reader);
-            return TryAnalyze(decodedWave.ToArray(), bandCount, out spectrum);
+            using var mp3DecodedWave = new MemoryStream();
+            WaveFileWriter.WriteWavFileToStream(mp3DecodedWave, reader);
+            return TryAnalyze(mp3DecodedWave.ToArray(), bandCount, out spectrum);
         }
         catch
         {

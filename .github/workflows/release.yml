@@ -49,6 +49,17 @@ jobs:
           body: |
             CF Rez Manager ${{ github.ref_name }}
 
+            ## v1.2.0 更新 / Highlights
+
+            - 新增设置窗口，可切换语言、亮色/暗色主题，并清理缩略图缓存。
+            - 缩略图缓存改为存放在程序目录，启动时会清理旧版用户目录缓存。
+            - 修复暗色主题下启动、文件夹加载、预览窗口、搜索框焦点和搜索提示的白底闪烁。
+            - 改进 OGG/MP3 音频预览，解码为 PCM 后再生成频谱，让波形显示更顺滑。
+            - Added a Settings window for language, light/dark theme switching, and thumbnail cache cleanup.
+            - Moved thumbnail cache storage to the program directory and removed the old user-profile cache on startup.
+            - Fixed dark-theme white flashes during startup, folder loading, preview windows, search focus, and search tooltips.
+            - Improved OGG/MP3 audio preview spectrum rendering by decoding to PCM before waveform analysis.
+
             ## 中文说明
 
             CF Rez Manager 是用于浏览、搜索、解包和重新打包 LithTech / CrossFire `.rez` 资源包的 Windows WPF 工具，也支持直接预览扫描目录中的散文件资源。

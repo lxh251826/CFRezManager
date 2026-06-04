@@ -11,6 +11,7 @@ public sealed class UserSettings
     };
 
     public string Language { get; set; } = "zh";
+    public string Theme { get; set; } = "Light";
     public string LastDirectory { get; set; } = string.Empty;
     public string LastRezDirectory { get; set; } = string.Empty;
     public string LastPackDirectory { get; set; } = string.Empty;

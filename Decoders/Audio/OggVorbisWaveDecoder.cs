@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO;
+using System.Text;
 using NVorbis;
 
 namespace CFRezManager;
@@ -10,7 +11,40 @@ internal static class OggVorbisWaveDecoder
     private const int HeaderLength = 44;
     private const long MaxPcmDataBytes = 512L * 1024 * 1024;
 
+    public static bool TryDecodeToWaveBytes(byte[] oggData, out byte[] wavData, out string? errorMessage)
+    {
+        return TryDecodeToWaveBytes(oggData, maxDurationSeconds: null, out wavData, out errorMessage);
+    }
+
+    public static bool TryDecodeToWaveBytes(byte[] oggData, double? maxDurationSeconds, out byte[] wavData, out string? errorMessage)
+    {
+        wavData = [];
+        using var output = new MemoryStream();
+        if (!TryDecodeToWaveStream(oggData, output, maxDurationSeconds, out errorMessage))
+        {
+            return false;
+        }
+
+        wavData = output.ToArray();
+        return true;
+    }
+
     public static bool TryDecodeToWave(byte[] oggData, string outputPath, out string? errorMessage)
+    {
+        errorMessage = null;
+        try
+        {
+            using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            return TryDecodeToWaveStream(oggData, output, maxDurationSeconds: null, out errorMessage);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException or ArgumentException)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private static bool TryDecodeToWaveStream(byte[] oggData, Stream output, double? maxDurationSeconds, out string? errorMessage)
     {
         errorMessage = null;
 
@@ -26,19 +60,32 @@ internal static class OggVorbisWaveDecoder
                 return false;
             }
 
-            using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            using var writer = new BinaryWriter(output);
+            output.SetLength(0);
+            using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
             WriteWaveHeader(writer, channels, sampleRate, dataBytes: 0);
 
             int bufferSamples = Math.Max(channels * 4096, channels);
             var floatBuffer = new float[bufferSamples];
+            long? maxSamples = maxDurationSeconds is > 0
+                ? Math.Max(channels, (long)Math.Ceiling(maxDurationSeconds.Value * sampleRate * channels))
+                : null;
             long dataBytes = 0;
+            long totalSamples = 0;
             while (true)
             {
                 int samplesRead = reader.ReadSamples(floatBuffer, 0, floatBuffer.Length);
                 if (samplesRead <= 0)
                 {
                     break;
+                }
+
+                if (maxSamples is { } sampleLimit && totalSamples + samplesRead > sampleLimit)
+                {
+                    samplesRead = checked((int)Math.Max(0, sampleLimit - totalSamples));
+                    if (samplesRead <= 0)
+                    {
+                        break;
+                    }
                 }
 
                 long nextBytes = dataBytes + samplesRead * sizeof(short);
@@ -54,6 +101,11 @@ internal static class OggVorbisWaveDecoder
                 }
 
                 dataBytes = nextBytes;
+                totalSamples += samplesRead;
+                if (maxSamples is { } limit && totalSamples >= limit)
+                {
+                    break;
+                }
             }
 
             if (dataBytes == 0)
@@ -64,6 +116,7 @@ internal static class OggVorbisWaveDecoder
 
             output.Position = 0;
             WriteWaveHeader(writer, channels, sampleRate, checked((int)dataBytes));
+            output.Position = output.Length;
             return true;
         }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException or ArgumentException)
