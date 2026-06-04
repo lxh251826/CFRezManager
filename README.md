@@ -34,6 +34,45 @@ dotnet build .\CFRezManager.csproj
 bin\Debug\net8.0-windows7.0\CFRezManager.exe
 ```
 
+## 目录结构
+
+```text
+CFRezManager/
+|-- App.xaml
+|-- App/
+|-- Archives/
+|-- Commands/
+|-- Decoders/
+|   |-- Audio/
+|   |-- Compression/
+|   |-- Config/
+|   |-- CrossFire/
+|   |-- Fmod/
+|   |-- Images/
+|   |-- LithTech/
+|   |   `-- Models/
+|   `-- Text/
+|-- Explorer/
+|-- Preview/
+|   |-- Audio/
+|   |-- Image/
+|   |-- Model/
+|   `-- Text/
+|-- UI/
+|-- assets/
+|-- CFRezManager.csproj
+`-- CFRezManager.sln
+```
+
+- `App/`：应用启动辅助、设置、本地化和程序集信息。
+- `Archives/`：REZ 读取、写入和目录表加密逻辑。
+- `Commands/`：OBJ 导出、CFG 扫描/解码、独立预览等命令行入口。
+- `Decoders/`：各类资源解码器，按音频、图片、CrossFire、LithTech、文本等类型分组。
+- `Explorer/`：资源浏览项目模型和缩略图缓存。
+- `Preview/`：音频、图片、模型、文本的独立预览窗口。
+- `UI/`：主窗口和界面控件。
+- `assets/`：应用图标和随程序复制的图片资源。
+
 ## 基本使用
 
 1. 启动程序。

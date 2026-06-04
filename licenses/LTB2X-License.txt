@@ -1,1 +1,0 @@
-Source code provided "as-is". Feel free to modify and redistribute. Always include this file with your distribution package. (License.txt)

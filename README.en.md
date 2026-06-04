@@ -34,6 +34,45 @@ Run the app from Visual Studio, or start the built executable:
 bin\Debug\net8.0-windows7.0\CFRezManager.exe
 ```
 
+## Project Structure
+
+```text
+CFRezManager/
+|-- App.xaml
+|-- App/
+|-- Archives/
+|-- Commands/
+|-- Decoders/
+|   |-- Audio/
+|   |-- Compression/
+|   |-- Config/
+|   |-- CrossFire/
+|   |-- Fmod/
+|   |-- Images/
+|   |-- LithTech/
+|   |   `-- Models/
+|   `-- Text/
+|-- Explorer/
+|-- Preview/
+|   |-- Audio/
+|   |-- Image/
+|   |-- Model/
+|   `-- Text/
+|-- UI/
+|-- assets/
+|-- CFRezManager.csproj
+`-- CFRezManager.sln
+```
+
+- `App/`: startup helpers, settings, localization, and assembly metadata.
+- `Archives/`: REZ reading, writing, and directory-table encryption logic.
+- `Commands/`: command-line entry points for OBJ export, CFG scan/decode, and standalone preview.
+- `Decoders/`: resource decoders grouped by audio, images, CrossFire, LithTech, text, and related formats.
+- `Explorer/`: resource browser item model and thumbnail cache.
+- `Preview/`: standalone preview windows for audio, images, models, and text.
+- `UI/`: main window and UI controls.
+- `assets/`: app icon and image resources copied with the app.
+
 ## Basic Use
 
 1. Start the program.
