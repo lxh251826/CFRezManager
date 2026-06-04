@@ -337,7 +337,7 @@ public partial class MainWindow : Window
             ["PreviewTgaRepaired"] = ("TGA - 拼接修复", "TGA - repaired layout"),
             ["PreviewTgaRawPixels"] = ("TGA - 原始像素修复", "TGA - repaired raw pixels"),
             ["PreviewImageBin"] = ("BIN - CF10/XOR \u56fe\u7247", "BIN - CF10/XOR image"),
-            ["PreviewImageBinLzma"] = ("BIN - CF10/XOR LZMA \u538b\u7f29\u56fe\u7247", "BIN - CF10/XOR LZMA image"),
+            ["PreviewImageBinLzma"] = ("BIN - LZMA 外壳图片", "BIN - LZMA-wrapped image"),
             ["PreviewImageBinZstd"] = ("BIN - Zstandard \u538b\u7f29 BGRA \u56fe\u7247", "BIN - Zstandard BGRA image"),
             ["ClearThumbnailCache"] = ("\u6e05\u7f29\u7565\u56fe", "Clear Cache"),
             ["ClearThumbnailCacheTooltip"] = ("\u5220\u9664\u5f53\u524d Windows \u7528\u6237\u76ee\u5f55\u4e0b\u7684\u7f29\u7565\u56fe\u78c1\u76d8\u7f13\u5b58", "Delete cached thumbnail PNGs under the current Windows user profile"),
@@ -3562,6 +3562,15 @@ public partial class MainWindow : Window
             if (CrossFireImageBinDecoder.HasSupportedImageHeader(header))
             {
                 return true;
+            }
+
+            if (LzmaAloneDecoder.IsCompressed(header))
+            {
+                byte[] lzmaCandidateData = ReadExplorerFileBytes(item, int.MaxValue);
+                return CrossFireImageBinDecoder.TryDecodeThumbnail(lzmaCandidateData, out _, out ImageStorageKind lzmaStorageKind) &&
+                       lzmaStorageKind is ImageStorageKind.CrossFireImageBin or
+                           ImageStorageKind.CrossFireImageBinLzma or
+                           ImageStorageKind.CrossFireImageBinZstd;
             }
 
             if (!CrossFireImageBinDecoder.HasEncodedHeader(header))

@@ -55,7 +55,7 @@ git push origin v1.1.4
 - DDS 支持 DXT1/DXT3/DXT5 块压缩纹理，也支持常见未压缩 RGB、RGBA 和亮度纹理。
 - DTX 和 TGA 支持普通纹理、CrossFire 常见 LZMA 压缩纹理，以及部分缺失或错位 TGA 头的原始像素纹理。
 - 常见图片格式支持普通文件和 LZMA 压缩文件预览。
-- CrossFire BIN 图片支持新版 `16 字节头 + Zstandard + BGRA32 像素` 容器，也保留旧的 CF10/XOR 图片外壳兜底。已验证的 UI 样本会识别为 `CrossFireImageBinZstd`。
+- CrossFire BIN 图片支持新版 `16 字节头 + Zstandard + BGRA32 像素` 容器，也支持 LZMA 外壳包裹该容器，并保留旧的 CF10/XOR 图片外壳兜底。已验证的 UI 样本会识别为 `CrossFireImageBinZstd` 或 LZMA 外壳图片。
 - DDS、DTX、TGA 和常见图片格式可以打开原始尺寸预览窗口。图片不会被强制拉伸，过大时可以滚动查看。
 - 图片预览窗口支持同目录/同列表内的上一张、下一张导航，可用按钮或左右方向键切换。
 - WAV、OGG、MP3 音频支持元数据解析、波形缩略图和双击预览。
@@ -139,6 +139,12 @@ dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\
 - `--export-obj` 会把 LithTech 模型部件导出为 OBJ/MTL，自动合并带序号的同组模型，按 CFG 映射解析贴图候选，并在 OBJ 旁写出贴图和映射报告。
 - `--scan-cfg` 会扫描 CFG，识别可读文本和 LZMA 文本，提取贴图引用，并输出 TXT/CSV 报告。
 - `--decode-cfg` 会重试失败 CFG，支持可还原文本落盘、二进制 RGB 条带预览图导出，以及高熵启动器/保护组件配置分类。
+
+## v1.1.6 更新
+
+- 新增 LZMA 外壳包裹新版 BIN 图片容器的解码路径，修复 `lobbynotice.rez` 一类 BIN 图片无法正确显示/导出的问题。
+- 放宽 LZMA-Alone 头识别，兼容更多合法 properties 变体，同时保留最大解码大小保护。
+- 更新中英文说明书和 GitHub Release 文案，版本号提升到 `v1.1.6`，并关闭 #2。
 
 ## v1.1.5 更新
 

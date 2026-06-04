@@ -56,7 +56,7 @@ After selecting files in search results or a normal folder, use the right-click 
 - DDS decoding covers DXT1/DXT3/DXT5 block-compressed textures plus common uncompressed RGB, RGBA, and luminance textures.
 - DTX and TGA decoding covers plain textures, LZMA-compressed textures commonly used by CF, and some raw-pixel textures with missing or misplaced TGA headers.
 - Common raster image formats can preview both plain files and LZMA-compressed resources.
-- CrossFire BIN images support the newer 16-byte header plus Zstandard-compressed BGRA32 pixel container, and the older CF10/XOR image wrapper fallback. Validated UI samples decode as `CrossFireImageBinZstd`.
+- CrossFire BIN images support the newer 16-byte header plus Zstandard-compressed BGRA32 pixel container, LZMA-wrapped variants of that container, and the older CF10/XOR image wrapper fallback. Validated UI samples decode as `CrossFireImageBinZstd` or LZMA-wrapped BIN images.
 - DDS, DTX, TGA, and common image formats can open in an original-size preview window. Images are not stretched; if an image is larger than the screen, use the preview window scroll bars.
 - The image preview window supports previous/next navigation across the current image list, using either the toolbar buttons or the left/right arrow keys.
 - WAV, OGG, and MP3 audio files support waveform thumbnails and double-click audio preview.
@@ -140,6 +140,12 @@ dotnet .\bin\Release\net8.0-windows7.0\CFRezManager.dll --decode-cfg --root "C:\
 - `--export-obj` exports LithTech model parts to OBJ/MTL, groups numbered sibling models, resolves texture candidates through CFG mappings, and writes texture/mapping reports next to the OBJ.
 - `--scan-cfg` scans CFG files, identifies readable text and LZMA text, extracts texture references, and writes TXT/CSV reports.
 - `--decode-cfg` retries failed CFGs, writes decoded text when a supported path succeeds, renders binary RGB-strip CFG previews, and classifies high-entropy launcher/protection configs separately.
+
+## v1.1.6 Changes
+
+- Added a decode path for LZMA-wrapped newer BIN image containers, fixing BIN images such as those in `lobbynotice.rez` not displaying or exporting correctly.
+- Relaxed LZMA-Alone header detection for additional valid properties variants while keeping maximum decoded-size protection.
+- Updated Chinese and English documentation plus GitHub Release notes, bumped the application version to `v1.1.6`, and closes #2.
 
 ## v1.1.5 Changes
 

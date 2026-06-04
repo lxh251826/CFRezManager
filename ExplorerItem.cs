@@ -282,7 +282,7 @@ public sealed class ExplorerItem : INotifyPropertyChanged
             {
                 if (_imageStorageKind is ImageStorageKind.CrossFireImageBinLzma)
                 {
-                    lines.Add("BIN storage: CF10/XOR encoded LZMA image");
+                    lines.Add("BIN storage: LZMA-wrapped image");
                 }
                 else if (_imageStorageKind is ImageStorageKind.CrossFireImageBinZstd)
                 {

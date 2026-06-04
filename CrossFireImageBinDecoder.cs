@@ -117,7 +117,7 @@ internal static class CrossFireImageBinDecoder
         return storageKind switch
         {
             ImageStorageKind.CrossFireImageBin => "BIN - CF10/XOR image",
-            ImageStorageKind.CrossFireImageBinLzma => "BIN - CF10/XOR LZMA image",
+            ImageStorageKind.CrossFireImageBinLzma => "BIN - LZMA-wrapped image",
             ImageStorageKind.CrossFireImageBinZstd => "BIN - Zstandard BGRA image",
             _ => null
         };
@@ -157,7 +157,8 @@ internal static class CrossFireImageBinDecoder
         out ImageSource? image,
         out ImageStorageKind storageKind)
     {
-        if (TryDecodeZstdImage(data, decodeThumbnail: true, out image, out storageKind) ||
+        if (TryDecodeLzmaWrappedImage(data, decodeThumbnail: true, out image, out storageKind) ||
+            TryDecodeZstdImage(data, decodeThumbnail: true, out image, out storageKind) ||
             TryDecodeDds(data, decodeThumbnail: true, out image, out storageKind) ||
             TryDecodeDtx(data, thumbnail: true, out image, out storageKind) ||
             TryDecodeRaster(data, decodeThumbnail: true, out image, out storageKind) ||
@@ -176,6 +177,11 @@ internal static class CrossFireImageBinDecoder
         bool allowTgaRepair,
         out ImageStorageKind storageKind)
     {
+        if (TryDecodeLzmaWrappedImage(data, decodeThumbnail: false, out ImageSource? lzmaImage, out storageKind))
+        {
+            return CreatePreviewFrames(lzmaImage);
+        }
+
         if (TryDecodeZstdImage(data, decodeThumbnail: false, out ImageSource? zstdImage, out storageKind))
         {
             return CreatePreviewFrames(zstdImage);
@@ -208,6 +214,38 @@ internal static class CrossFireImageBinDecoder
 
         storageKind = ImageStorageKind.None;
         return Array.Empty<ImagePreviewFrame>();
+    }
+
+    private static bool TryDecodeLzmaWrappedImage(
+        byte[] data,
+        bool decodeThumbnail,
+        out ImageSource? image,
+        out ImageStorageKind storageKind)
+    {
+        image = null;
+        storageKind = ImageStorageKind.None;
+        if (!LzmaAloneDecoder.IsCompressed(data))
+        {
+            return false;
+        }
+
+        byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data, MaxZstdDecodedBytes);
+        if (prepared is null)
+        {
+            return false;
+        }
+
+        if (TryDecodeZstdImage(prepared, decodeThumbnail, out image, out _) ||
+            TryDecodeEncodedPayload(prepared, out byte[]? encodedPayload) &&
+            encodedPayload is not null &&
+            TryDecodeZstdImage(encodedPayload, decodeThumbnail, out image, out _))
+        {
+            storageKind = ImageStorageKind.CrossFireImageBinLzma;
+            return true;
+        }
+
+        image = null;
+        return false;
     }
 
     private static bool TryDecodeZstdImage(
