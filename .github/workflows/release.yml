@@ -49,12 +49,14 @@ jobs:
           body: |
             CF Rez Manager ${{ github.ref_name }}
 
-            ## v1.2.0 更新 / Highlights
+            ## v1.2.1 更新 / Highlights
 
+            - 修复主窗口、图片预览和文本预览中暗色主题下仍显示系统白色滚动条的问题。
             - 新增设置窗口，可切换语言、亮色/暗色主题，并清理缩略图缓存。
             - 缩略图缓存改为存放在程序目录，启动时会清理旧版用户目录缓存。
             - 修复暗色主题下启动、文件夹加载、预览窗口、搜索框焦点和搜索提示的白底闪烁。
             - 改进 OGG/MP3 音频预览，解码为 PCM 后再生成频谱，让波形显示更顺滑。
+            - Fixed system-white scrollbars still appearing in the main window, image preview, and text preview while using the dark theme.
             - Added a Settings window for language, light/dark theme switching, and thumbnail cache cleanup.
             - Moved thumbnail cache storage to the program directory and removed the old user-profile cache on startup.
             - Fixed dark-theme white flashes during startup, folder loading, preview windows, search focus, and search tooltips.

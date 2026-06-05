@@ -94,6 +94,7 @@
                             <ScrollViewer x:Name="PART_ContentHost"
                                           Background="{TemplateBinding Background}"
                                           Focusable="False"
+                                          Style="{x:Null}"
                                           Margin="{TemplateBinding Padding}"
                                           HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
                                           VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"/>
@@ -140,6 +141,245 @@
         <Style TargetType="{x:Type ListBox}">
             <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+        </Style>
+
+        <Style x:Key="AppScrollBarLineButtonStyle" TargetType="{x:Type RepeatButton}">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type RepeatButton}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppButtonPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AppScrollBarPageButtonStyle" TargetType="{x:Type RepeatButton}">
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type RepeatButton}">
+                        <Border Background="{TemplateBinding Background}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AppScrollBarThumbStyle" TargetType="{x:Type Thumb}">
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Thumb}">
+                        <Border x:Name="Root"
+                                Margin="3,2"
+                                CornerRadius="3"
+                                Background="{DynamicResource AppButtonBorderBrush}"/>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppSelectionBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppAccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="AppScrollBarStyle" TargetType="{x:Type ScrollBar}">
+            <Setter Property="Width" Value="15"/>
+            <Setter Property="MinWidth" Value="15"/>
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollBar}">
+                        <Grid x:Name="Root"
+                              Width="{TemplateBinding Width}"
+                              Background="{TemplateBinding Background}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="15"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="15"/>
+                            </Grid.RowDefinitions>
+
+                            <RepeatButton Command="{x:Static ScrollBar.LineUpCommand}"
+                                          Style="{StaticResource AppScrollBarLineButtonStyle}">
+                                <Path Width="7"
+                                      Height="5"
+                                      Stretch="Uniform"
+                                      Fill="{DynamicResource AppSubtleTextBrush}"
+                                      Data="M 0 5 L 3.5 0 L 7 5 Z"/>
+                            </RepeatButton>
+                            <Track x:Name="PART_Track"
+                                   Grid.Row="1"
+                                   IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                                  Style="{StaticResource AppScrollBarPageButtonStyle}"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Style="{StaticResource AppScrollBarThumbStyle}"/>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                                  Style="{StaticResource AppScrollBarPageButtonStyle}"/>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                            <RepeatButton Grid.Row="2"
+                                          Command="{x:Static ScrollBar.LineDownCommand}"
+                                          Style="{StaticResource AppScrollBarLineButtonStyle}">
+                                <Path Width="7"
+                                      Height="5"
+                                      Stretch="Uniform"
+                                      Fill="{DynamicResource AppSubtleTextBrush}"
+                                      Data="M 0 0 L 7 0 L 3.5 5 Z"/>
+                            </RepeatButton>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto"/>
+                    <Setter Property="MinWidth" Value="0"/>
+                    <Setter Property="Height" Value="15"/>
+                    <Setter Property="MinHeight" Value="15"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ScrollBar}">
+                                <Grid x:Name="Root"
+                                      Height="{TemplateBinding Height}"
+                                      Background="{TemplateBinding Background}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="15"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="15"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <RepeatButton Command="{x:Static ScrollBar.LineLeftCommand}"
+                                                  Style="{StaticResource AppScrollBarLineButtonStyle}">
+                                        <Path Width="5"
+                                              Height="7"
+                                              Stretch="Uniform"
+                                              Fill="{DynamicResource AppSubtleTextBrush}"
+                                              Data="M 5 0 L 0 3.5 L 5 7 Z"/>
+                                    </RepeatButton>
+                                    <Track x:Name="PART_Track"
+                                           Grid.Column="1">
+                                        <Track.DecreaseRepeatButton>
+                                            <RepeatButton Command="{x:Static ScrollBar.PageLeftCommand}"
+                                                          Style="{StaticResource AppScrollBarPageButtonStyle}"/>
+                                        </Track.DecreaseRepeatButton>
+                                        <Track.Thumb>
+                                            <Thumb Style="{StaticResource AppScrollBarThumbStyle}"/>
+                                        </Track.Thumb>
+                                        <Track.IncreaseRepeatButton>
+                                            <RepeatButton Command="{x:Static ScrollBar.PageRightCommand}"
+                                                          Style="{StaticResource AppScrollBarPageButtonStyle}"/>
+                                        </Track.IncreaseRepeatButton>
+                                    </Track>
+                                    <RepeatButton Grid.Column="2"
+                                                  Command="{x:Static ScrollBar.LineRightCommand}"
+                                                  Style="{StaticResource AppScrollBarLineButtonStyle}">
+                                        <Path Width="5"
+                                              Height="7"
+                                              Stretch="Uniform"
+                                              Fill="{DynamicResource AppSubtleTextBrush}"
+                                              Data="M 0 0 L 5 3.5 L 0 7 Z"/>
+                                    </RepeatButton>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter TargetName="Root" Property="Opacity" Value="0.45"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="{x:Type ScrollBar}"
+               BasedOn="{StaticResource AppScrollBarStyle}"/>
+
+        <Style TargetType="{x:Type ScrollViewer}">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
+                                                    Grid.Row="0"
+                                                    Grid.Column="0"
+                                                    CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                    CanHorizontallyScroll="False"
+                                                    CanVerticallyScroll="False"
+                                                    Content="{TemplateBinding Content}"
+                                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                    ContentStringFormat="{TemplateBinding ContentStringFormat}"
+                                                    Margin="{TemplateBinding Padding}"
+                                                    SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                            <ScrollBar x:Name="PART_VerticalScrollBar"
+                                       Grid.Row="0"
+                                       Grid.Column="1"
+                                       Orientation="Vertical"
+                                       Maximum="{TemplateBinding ScrollableHeight}"
+                                       ViewportSize="{TemplateBinding ViewportHeight}"
+                                       Value="{Binding VerticalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                       Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                       Style="{StaticResource AppScrollBarStyle}"/>
+                            <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                       Grid.Row="1"
+                                       Grid.Column="0"
+                                       Orientation="Horizontal"
+                                       Maximum="{TemplateBinding ScrollableWidth}"
+                                       ViewportSize="{TemplateBinding ViewportWidth}"
+                                       Value="{Binding HorizontalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                       Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                                       Style="{StaticResource AppScrollBarStyle}"/>
+                            <Border Grid.Row="1"
+                                    Grid.Column="1"
+                                    Background="{DynamicResource AppSurfaceAltBrush}"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="{x:Type ContextMenu}">
