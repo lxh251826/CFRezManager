@@ -34,8 +34,18 @@ internal static class LithTechObjExportCommand
             WriteSummary(summaryPath, options, result, mappingReportPath, skippedCount);
 
             Console.WriteLine($"OBJ: {result.ObjPath}");
-            Console.WriteLine($"Texture report: {result.TextureReportPath}");
-            Console.WriteLine($"Mapping report: {mappingReportPath}");
+            Console.WriteLine($"MTL: {result.MtlPath}");
+            Console.WriteLine($"Texture folder: {result.TextureDirectoryPath}");
+            if (!string.IsNullOrWhiteSpace(result.TextureReportPath))
+            {
+                Console.WriteLine($"Texture report: {result.TextureReportPath}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(mappingReportPath))
+            {
+                Console.WriteLine($"Mapping report: {mappingReportPath}");
+            }
+
             Console.WriteLine($"Summary: {summaryPath}");
             return 0;
         }
@@ -185,7 +195,9 @@ internal static class LithTechObjExportCommand
         }
 
         LithTechObjExportResult result = LithTechObjExporter.Export(options.OutputPath, sources);
-        mappingReportPath = LithTechTextureMappingScanner.WriteReport(result.ObjPath, root, sources);
+        mappingReportPath = result.MissingTextureCount == 0
+            ? string.Empty
+            : LithTechTextureMappingScanner.WriteReport(result.ObjPath, root, sources);
         return result;
     }
 
@@ -202,8 +214,18 @@ internal static class LithTechObjExportCommand
         writer.WriteLine($"Source root: {options.SourceRoot}");
         writer.WriteLine($"Model query: {options.ModelQuery}");
         writer.WriteLine($"OBJ: {result.ObjPath}");
-        writer.WriteLine($"Texture report: {result.TextureReportPath}");
-        writer.WriteLine($"Mapping report: {mappingReportPath}");
+        writer.WriteLine($"MTL: {result.MtlPath}");
+        writer.WriteLine($"Texture folder: {result.TextureDirectoryPath}");
+        if (!string.IsNullOrWhiteSpace(result.TextureReportPath))
+        {
+            writer.WriteLine($"Texture report: {result.TextureReportPath}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(mappingReportPath))
+        {
+            writer.WriteLine($"Mapping report: {mappingReportPath}");
+        }
+
         writer.WriteLine();
         writer.WriteLine($"Sources: {result.SourceCount.ToString(CultureInfo.InvariantCulture)}");
         writer.WriteLine($"Meshes: {result.MeshCount.ToString(CultureInfo.InvariantCulture)}");
@@ -632,7 +654,9 @@ internal static class LithTechObjExportCommand
             return primaryResolver;
         }
 
-        return texturePath => primaryResolver(texturePath) ?? globalTextureResolver(texturePath);
+        return item.Kind == ExplorerItemKind.LocalFile
+            ? texturePath => globalTextureResolver(texturePath) ?? primaryResolver(texturePath)
+            : texturePath => primaryResolver(texturePath) ?? globalTextureResolver(texturePath);
     }
 
     private static bool TryLoadModelDocument(ExplorerItem item, out LithTechModelDocument? document, out string? errorMessage)

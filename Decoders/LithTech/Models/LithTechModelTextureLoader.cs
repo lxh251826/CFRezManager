@@ -11,7 +11,8 @@ internal static class LithTechModelTextureLoader
     private const int MaxLocalTextureSearchParentDepth = 5;
     private const int MaxLocalTextureSearchVisitedFiles = 200_000;
     private static readonly string[] TextureExtensions = [".dtx", ".dds", ".tga", ".png", ".jpg", ".jpeg", ".bmp", ".bin"];
-    private static readonly ConditionalWeakTable<RezArchive, Dictionary<string, RezFileNode>> ArchiveFileLookupCache = new();
+    private static readonly ConditionalWeakTable<RezArchive, ArchiveTextureIndex> ArchiveTextureIndexCache = new();
+    private static readonly ConditionalWeakTable<ExplorerItem, TextureIndex> GlobalTextureIndexCache = new();
 
     public static Func<string, ImageSource?>? CreateResolver(ExplorerItem item)
     {
@@ -49,7 +50,7 @@ internal static class LithTechModelTextureLoader
 
     public static Func<string, ImageSource?>? CreateGlobalResolver(ExplorerItem root)
     {
-        var textureIndex = BuildTextureIndex(root);
+        TextureIndex textureIndex = GlobalTextureIndexCache.GetValue(root, BuildTextureIndex);
         if (textureIndex.IsEmpty)
         {
             return null;
@@ -72,7 +73,7 @@ internal static class LithTechModelTextureLoader
 
     private static Func<string, ImageSource?> CreateArchiveResolver(RezArchive archive)
     {
-        Dictionary<string, RezFileNode> filesByPath = GetArchiveFileLookup(archive);
+        ArchiveTextureIndex textureIndex = GetArchiveTextureIndex(archive);
         var cache = new Dictionary<string, ImageSource?>(StringComparer.OrdinalIgnoreCase);
         return texturePath =>
         {
@@ -82,7 +83,7 @@ internal static class LithTechModelTextureLoader
                 return cached;
             }
 
-            ImageSource? image = TryResolveArchiveTexture(archive, filesByPath, normalized);
+            ImageSource? image = TryResolveArchiveTexture(archive, textureIndex, normalized);
             cache[normalized] = image;
             return image;
         };
@@ -90,39 +91,30 @@ internal static class LithTechModelTextureLoader
 
     private static ImageSource? TryResolveArchiveTexture(
         RezArchive archive,
-        Dictionary<string, RezFileNode> filesByPath,
+        ArchiveTextureIndex textureIndex,
         string texturePath)
     {
         foreach (string candidate in GetTexturePathCandidates(texturePath))
         {
-            if (filesByPath.TryGetValue(candidate, out RezFileNode? file))
+            string normalizedCandidate = NormalizeTexturePath(candidate);
+            if (textureIndex.FilesByPath.TryGetValue(normalizedCandidate, out RezFileNode? file))
             {
-                return TryReadArchiveTexture(archive, file);
+                return TryReadArchiveTexture(archive, textureIndex, file);
+            }
+
+            if (textureIndex.UniqueFilesBySuffix.TryGetValue(normalizedCandidate, out file) &&
+                file is not null)
+            {
+                return TryReadArchiveTexture(archive, textureIndex, file);
             }
         }
 
         foreach (string candidateName in GetTextureFileNameCandidates(texturePath))
         {
-            RezFileNode? match = null;
-            foreach ((string path, RezFileNode file) in filesByPath)
+            if (textureIndex.UniqueFilesByName.TryGetValue(candidateName, out RezFileNode? match) &&
+                match is not null)
             {
-                if (!PathMatchesFileName(path, candidateName))
-                {
-                    continue;
-                }
-
-                if (match is not null)
-                {
-                    match = null;
-                    break;
-                }
-
-                match = file;
-            }
-
-            if (match is not null)
-            {
-                return TryReadArchiveTexture(archive, match);
+                return TryReadArchiveTexture(archive, textureIndex, match);
             }
         }
 
@@ -136,29 +128,13 @@ internal static class LithTechModelTextureLoader
             string normalizedCandidate = NormalizeTexturePath(candidate);
             if (textureIndex.FilesByPath.TryGetValue(normalizedCandidate, out ExplorerItem? exactMatch))
             {
-                return TryReadTextureItem(exactMatch);
+                return TryReadTextureItem(textureIndex, exactMatch);
             }
 
-            ExplorerItem? suffixMatch = null;
-            foreach ((string path, ExplorerItem item) in textureIndex.FilesByPath)
+            if (textureIndex.UniqueFilesBySuffix.TryGetValue(normalizedCandidate, out ExplorerItem? suffixMatch) &&
+                suffixMatch is not null)
             {
-                if (!path.EndsWith("/" + normalizedCandidate, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (suffixMatch is not null)
-                {
-                    suffixMatch = null;
-                    break;
-                }
-
-                suffixMatch = item;
-            }
-
-            if (suffixMatch is not null)
-            {
-                return TryReadTextureItem(suffixMatch);
+                return TryReadTextureItem(textureIndex, suffixMatch);
             }
         }
 
@@ -167,17 +143,11 @@ internal static class LithTechModelTextureLoader
             if (textureIndex.UniqueFilesByName.TryGetValue(candidateName, out ExplorerItem? item) &&
                 item is not null)
             {
-                return TryReadTextureItem(item);
+                return TryReadTextureItem(textureIndex, item);
             }
         }
 
         return null;
-    }
-
-    private static bool PathMatchesFileName(string path, string fileName)
-    {
-        return string.Equals(path, fileName, StringComparison.OrdinalIgnoreCase) ||
-               path.EndsWith("/" + fileName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ImageSource? TryResolveLocalTexture(
@@ -409,6 +379,47 @@ internal static class LithTechModelTextureLoader
         }
     }
 
+    private static ImageSource? TryReadArchiveTexture(
+        RezArchive archive,
+        ArchiveTextureIndex textureIndex,
+        RezFileNode file)
+    {
+        lock (textureIndex.ImageCache)
+        {
+            if (textureIndex.ImageCache.TryGetValue(file, out ImageSource? cached))
+            {
+                return cached;
+            }
+        }
+
+        ImageSource? image = TryReadArchiveTexture(archive, file);
+        lock (textureIndex.ImageCache)
+        {
+            textureIndex.ImageCache[file] = image;
+        }
+
+        return image;
+    }
+
+    private static ImageSource? TryReadTextureItem(TextureIndex textureIndex, ExplorerItem item)
+    {
+        lock (textureIndex.ImageCache)
+        {
+            if (textureIndex.ImageCache.TryGetValue(item, out ImageSource? cached))
+            {
+                return cached;
+            }
+        }
+
+        ImageSource? image = TryReadTextureItem(item);
+        lock (textureIndex.ImageCache)
+        {
+            textureIndex.ImageCache[item] = image;
+        }
+
+        return image;
+    }
+
     private static ImageSource? TryReadTextureItem(ExplorerItem item)
     {
         try
@@ -466,17 +477,56 @@ internal static class LithTechModelTextureLoader
 
         if (string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
         {
-            return DtxThumbnailDecoder.TryDecodeOriginal(data);
+            ImageSource? image = DtxThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
         }
 
         if (string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase))
         {
-            return DdsThumbnailDecoder.TryDecodeOriginal(data);
+            ImageSource? image = DdsThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
         }
 
         if (string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
         {
-            return TgaThumbnailDecoder.TryDecodeOriginal(data);
+            ImageSource? image = TgaThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
+        }
+
+        if (!string.Equals(extension, "dtx", StringComparison.OrdinalIgnoreCase))
+        {
+            ImageSource? image = DtxThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
+        }
+
+        if (!string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase))
+        {
+            ImageSource? image = DdsThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
+        }
+
+        if (!string.Equals(extension, "tga", StringComparison.OrdinalIgnoreCase))
+        {
+            ImageSource? image = TgaThumbnailDecoder.TryDecodeOriginal(data);
+            if (image is not null)
+            {
+                return image;
+            }
         }
 
         return TryLoadBitmapImage(data);
@@ -502,13 +552,15 @@ internal static class LithTechModelTextureLoader
         }
     }
 
-    private static Dictionary<string, RezFileNode> GetArchiveFileLookup(RezArchive archive)
+    private static ArchiveTextureIndex GetArchiveTextureIndex(RezArchive archive)
     {
-        return ArchiveFileLookupCache.GetValue(archive, static archiveValue =>
+        return ArchiveTextureIndexCache.GetValue(archive, static archiveValue =>
         {
             var filesByPath = new Dictionary<string, RezFileNode>(StringComparer.OrdinalIgnoreCase);
-            AddArchiveFiles(archiveValue.Root, filesByPath);
-            return filesByPath;
+            var filesByName = new Dictionary<string, RezFileNode?>(StringComparer.OrdinalIgnoreCase);
+            var filesBySuffix = new Dictionary<string, RezFileNode?>(StringComparer.OrdinalIgnoreCase);
+            AddArchiveTextureFiles(archiveValue.Root, filesByPath, filesByName, filesBySuffix);
+            return new ArchiveTextureIndex(filesByPath, filesByName, filesBySuffix, []);
         });
     }
 
@@ -516,16 +568,18 @@ internal static class LithTechModelTextureLoader
     {
         var filesByPath = new Dictionary<string, ExplorerItem>(StringComparer.OrdinalIgnoreCase);
         var filesByName = new Dictionary<string, ExplorerItem?>(StringComparer.OrdinalIgnoreCase);
-        CollectTextureItems(root, filesByPath, filesByName);
-        return new TextureIndex(filesByPath, filesByName);
+        var filesBySuffix = new Dictionary<string, ExplorerItem?>(StringComparer.OrdinalIgnoreCase);
+        CollectTextureItems(root, filesByPath, filesByName, filesBySuffix);
+        return new TextureIndex(filesByPath, filesByName, filesBySuffix, []);
     }
 
     private static void CollectTextureItems(
         ExplorerItem item,
         Dictionary<string, ExplorerItem> filesByPath,
-        Dictionary<string, ExplorerItem?> filesByName)
+        Dictionary<string, ExplorerItem?> filesByName,
+        Dictionary<string, ExplorerItem?> filesBySuffix)
     {
-        if (item.IsFile && TextureExtensions.Contains("." + item.FileExtension, StringComparer.OrdinalIgnoreCase))
+        if (item.IsFile && IsTextureExtension(item.FileExtension))
         {
             string normalizedPath = NormalizeTexturePath(item.OutputRelativePath);
             if (!string.IsNullOrWhiteSpace(normalizedPath))
@@ -533,39 +587,112 @@ internal static class LithTechModelTextureLoader
                 filesByPath.TryAdd(normalizedPath, item);
             }
 
-            string fileName = Path.GetFileName(normalizedPath);
-            if (!string.IsNullOrWhiteSpace(fileName))
+            if (LithTechResourceHeuristics.IsLikelyModelTexturePath(normalizedPath, item.FileExtension))
             {
-                if (filesByName.ContainsKey(fileName))
+                AddSuffixIndexCandidates(filesBySuffix, normalizedPath, item);
+
+                string fileName = GetResourceFileName(normalizedPath);
+                if (!string.IsNullOrWhiteSpace(fileName))
                 {
-                    filesByName[fileName] = null;
-                }
-                else
-                {
-                    filesByName[fileName] = item;
+                    AddUniqueIndexCandidate(filesByName, fileName, item);
                 }
             }
         }
 
         foreach (ExplorerItem child in item.Children)
         {
-            CollectTextureItems(child, filesByPath, filesByName);
+            CollectTextureItems(child, filesByPath, filesByName, filesBySuffix);
         }
     }
 
-    private static void AddArchiveFiles(RezDirectoryNode directory, Dictionary<string, RezFileNode> filesByPath)
+    private static void AddArchiveTextureFiles(
+        RezDirectoryNode directory,
+        Dictionary<string, RezFileNode> filesByPath,
+        Dictionary<string, RezFileNode?> filesByName,
+        Dictionary<string, RezFileNode?> filesBySuffix)
     {
         foreach (RezNode child in directory.Children)
         {
             if (child is RezFileNode file)
             {
-                filesByPath.TryAdd(NormalizeTexturePath(file.FullPath), file);
+                if (!IsTextureExtension(file.Extension))
+                {
+                    continue;
+                }
+
+                string normalizedPath = NormalizeTexturePath(file.FullPath);
+                if (!string.IsNullOrWhiteSpace(normalizedPath))
+                {
+                    filesByPath.TryAdd(normalizedPath, file);
+                }
+
+                if (LithTechResourceHeuristics.IsLikelyModelTexturePath(normalizedPath, file.Extension))
+                {
+                    AddSuffixIndexCandidates(filesBySuffix, normalizedPath, file);
+
+                    string fileName = GetResourceFileName(normalizedPath);
+                    if (!string.IsNullOrWhiteSpace(fileName))
+                    {
+                        AddUniqueIndexCandidate(filesByName, fileName, file);
+                    }
+                }
             }
             else if (child is RezDirectoryNode childDirectory)
             {
-                AddArchiveFiles(childDirectory, filesByPath);
+                AddArchiveTextureFiles(childDirectory, filesByPath, filesByName, filesBySuffix);
             }
         }
+    }
+
+    private static bool IsTextureExtension(string extension)
+    {
+        string normalized = extension.Trim().TrimStart('.');
+        return normalized.Length > 0 &&
+               TextureExtensions.Contains("." + normalized, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AddSuffixIndexCandidates<T>(
+        Dictionary<string, T?> index,
+        string normalizedPath,
+        T item)
+        where T : class
+    {
+        string[] segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (int startIndex = 1; startIndex < segments.Length - 1; startIndex++)
+        {
+            AddUniqueIndexCandidate(index, string.Join("/", segments.Skip(startIndex)), item);
+        }
+    }
+
+    private static void AddUniqueIndexCandidate<T>(
+        Dictionary<string, T?> index,
+        string key,
+        T item)
+        where T : class
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        if (!index.TryGetValue(key, out T? existing))
+        {
+            index[key] = item;
+            return;
+        }
+
+        if (existing is not null && ReferenceEquals(existing, item))
+        {
+            return;
+        }
+
+        index[key] = null;
+    }
+
+    private static string GetResourceFileName(string normalizedPath)
+    {
+        int slashIndex = normalizedPath.LastIndexOf('/');
+        return slashIndex >= 0 ? normalizedPath[(slashIndex + 1)..] : normalizedPath;
     }
 
     private static string NormalizeTexturePath(string path)
@@ -579,8 +706,16 @@ internal static class LithTechModelTextureLoader
 
     private sealed record TextureIndex(
         Dictionary<string, ExplorerItem> FilesByPath,
-        Dictionary<string, ExplorerItem?> UniqueFilesByName)
+        Dictionary<string, ExplorerItem?> UniqueFilesByName,
+        Dictionary<string, ExplorerItem?> UniqueFilesBySuffix,
+        Dictionary<ExplorerItem, ImageSource?> ImageCache)
     {
-        public bool IsEmpty => FilesByPath.Count == 0 && UniqueFilesByName.Count == 0;
+        public bool IsEmpty => FilesByPath.Count == 0 && UniqueFilesByName.Count == 0 && UniqueFilesBySuffix.Count == 0;
     }
+
+    private sealed record ArchiveTextureIndex(
+        Dictionary<string, RezFileNode> FilesByPath,
+        Dictionary<string, RezFileNode?> UniqueFilesByName,
+        Dictionary<string, RezFileNode?> UniqueFilesBySuffix,
+        Dictionary<RezFileNode, ImageSource?> ImageCache);
 }

@@ -100,7 +100,7 @@ Common right-click actions:
 - Audio: WAV, OGG, MP3, and FMOD `.bank`, with waveform thumbnails, track list, playback controls, seeking, and dynamic spectrum display. OGG/MP3 previews decode to PCM before spectrum rendering so normal audio files behave more like FMOD BANK streams.
 - Models and maps: LTC, LTB, LTA, DAT, and SPR, with thumbnails and standalone preview windows; SPR can autoplay animation frames.
 - Text and config resources: CFT, FCF, FXF, FXO, NAV, APF, REF, TXT, selected WAVE resources, CrossFire UI script `.bin`, and CFG.
-- CFG batch work: scan texture references, classify failed decodes, and render previews for binary RGB-strip CFG files.
+- CFG batch work: scan texture references, decode plain/LZMA/ENC/REZ-phase text CFG files, classify failed decodes, and render previews for binary RGB-strip CFG files.
 
 Generated thumbnails are cached in the `ThumbnailCache` folder under the program directory instead of the current Windows user profile disk. On startup, the app tries to remove the old user-profile thumbnail cache; use `Clear Cache` in `Settings` after replacing resources to remove current stale thumbnails.
 
@@ -153,9 +153,18 @@ dotnet run --project .\CFRezManager.csproj -- --scan-cfg --root "C:\Extracted\cf
 dotnet run --project .\CFRezManager.csproj -- --decode-cfg --root "C:\Extracted\cfg"
 ```
 
-- `--export-obj`: export LithTech models to OBJ/MTL and write texture/mapping reports.
+- `--export-obj`: export LithTech models to OBJ/MTL, write a sibling `_textures` folder, and reference exported PNG textures from the MTL; diagnostics are written only when textures are missing.
 - `--scan-cfg`: scan CFG files, extract texture references, and write TXT/CSV reports.
 - `--decode-cfg`: retry failed CFG files, export recovered text or binary previews, and classify high-entropy configs.
+
+## v1.2.2 Changes
+
+- Fixed additional dark-theme white surfaces, including context menus, selection items, inputs, combo items, progress bars, and sliders.
+- OBJ export now creates a ready-to-import model package: `.obj` references `.mtl`, and `.mtl` uses `map_Kd` paths into the exported `_textures` PNG folder.
+- Optimized OBJ texture resolution with global texture indexes, model-texture CFG indexes, and model/texture path heuristics so UI scripts and unrelated texture folders no longer dominate lookup work.
+- Added a dedicated CFG text decode pipeline for plain text, LZMA, ENC Base64, and REZ phase attempts; binary RGB-strip CFG files are detected early and skip expensive phase brute forcing.
+- Cached global texture indexes and CFG config indexes per loaded resource tree so repeated exports do not rebuild large dictionaries.
+- On the `F:\CrossFile\CrossFileREZBack\7.2.1` test tree, `ak47` OBJ export completes in about 2.8 seconds with 2 textures exported and 0 missing textures.
 
 ## Support The Project
 

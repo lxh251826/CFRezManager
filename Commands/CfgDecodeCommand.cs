@@ -226,21 +226,6 @@ internal static partial class CfgDecodeCommand
                 $"score={candidate.Score.ToString(CultureInfo.InvariantCulture)}");
         }
 
-        if (preparedBytes.Length <= MaxRezPhaseBytes &&
-            TryDecodeRezPhase(preparedBytes, out StructuredTextCandidate? rezCandidate))
-        {
-            StructuredTextCandidate candidate = rezCandidate!;
-            string outputPath = WriteDecodedText(options.OutputDirectory, relativePath, candidate.Text);
-            return new DecodeResult(
-                path,
-                relativePath,
-                data.Length,
-                "decoded-rez-phase",
-                $"{candidate.Method} / {candidate.EncodingName}",
-                outputPath,
-                $"score={candidate.Score.ToString(CultureInfo.InvariantCulture)}");
-        }
-
         if (CfgBinaryStripDecoder.TryWritePng(
                 preparedBytes,
                 BuildPreviewPath(options.OutputDirectory, relativePath),
@@ -255,6 +240,21 @@ internal static partial class CfgDecodeCommand
                 "raw-rgb-strip",
                 outputPath,
                 CfgBinaryStripDecoder.Describe(stripInfo));
+        }
+
+        if (preparedBytes.Length <= MaxRezPhaseBytes &&
+            TryDecodeRezPhase(preparedBytes, out StructuredTextCandidate? rezCandidate))
+        {
+            StructuredTextCandidate candidate = rezCandidate!;
+            string outputPath = WriteDecodedText(options.OutputDirectory, relativePath, candidate.Text);
+            return new DecodeResult(
+                path,
+                relativePath,
+                data.Length,
+                "decoded-rez-phase",
+                $"{candidate.Method} / {candidate.EncodingName}",
+                outputPath,
+                $"score={candidate.Score.ToString(CultureInfo.InvariantCulture)}");
         }
 
         if (LooksLikeSystemEncryptedConfig(relativePath, preparedBytes))

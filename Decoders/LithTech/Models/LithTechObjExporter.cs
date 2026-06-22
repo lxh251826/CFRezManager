@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -15,6 +16,8 @@ internal sealed record LithTechObjExportSource(
 
 internal sealed record LithTechObjExportResult(
     string ObjPath,
+    string MtlPath,
+    string TextureDirectoryPath,
     int SourceCount,
     int MeshCount,
     int VertexCount,
@@ -27,6 +30,8 @@ internal sealed record LithTechObjExportResult(
 internal static class LithTechObjExporter
 {
     private const double BlenderFitSize = 4.5;
+
+    private static readonly ConcurrentDictionary<string, IReadOnlyList<string>> TextureNameCandidateCache = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly (double R, double G, double B)[] FallbackColors =
     [
@@ -69,6 +74,8 @@ internal static class LithTechObjExporter
         var materialByKey = new Dictionary<string, ObjMaterial>(StringComparer.OrdinalIgnoreCase);
         var usedMaterialNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usedTextureNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var exportedTextureByCandidate = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var exportedTextureByBitmap = new Dictionary<BitmapSource, string>(ReferenceEqualityComparer.Instance);
         var textureReports = new List<ObjTextureReport>();
         ExportTransform transform = CalculateExportTransform(sources);
 
@@ -102,6 +109,8 @@ internal static class LithTechObjExporter
                     materialByKey,
                     usedMaterialNames,
                     usedTextureNames,
+                    exportedTextureByCandidate,
+                    exportedTextureByBitmap,
                     materials,
                     textureReports,
                     globalMeshIndex);
@@ -167,18 +176,25 @@ internal static class LithTechObjExporter
         }
 
         WriteMaterialLibrary(mtlPath, materials);
-        string textureReportPath = Path.Combine(outputDirectory, $"{baseName}_texture_report.txt");
-        WriteTextureReport(textureReportPath, sources, textureReports);
+        int missingTextureCount = textureReports.Count(report => string.IsNullOrWhiteSpace(report.ExportedRelativePath));
+        string textureReportPath = string.Empty;
+        if (missingTextureCount > 0 || textureReports.Count == 0)
+        {
+            textureReportPath = Path.Combine(outputDirectory, $"{baseName}_texture_report.txt");
+            WriteTextureReport(textureReportPath, sources, textureReports);
+        }
 
         return new LithTechObjExportResult(
             fullObjPath,
+            mtlPath,
+            textureDirectory,
             sources.Count,
             meshCount,
             sources.Sum(source => source.Document.VertexCount),
             sources.Sum(source => source.Document.TriangleCount),
             materials.Count(material => !string.IsNullOrWhiteSpace(material.TextureRelativePath)),
             textureReports.Count,
-            textureReports.Count(report => string.IsNullOrWhiteSpace(report.ExportedRelativePath)),
+            missingTextureCount,
             textureReportPath);
     }
 
@@ -237,6 +253,8 @@ internal static class LithTechObjExporter
         Dictionary<string, ObjMaterial> materialByKey,
         HashSet<string> usedMaterialNames,
         HashSet<string> usedTextureNames,
+        Dictionary<string, string?> exportedTextureByCandidate,
+        Dictionary<BitmapSource, string> exportedTextureByBitmap,
         List<ObjMaterial> materials,
         List<ObjTextureReport> textureReports,
         int meshIndex)
@@ -271,6 +289,8 @@ internal static class LithTechObjExporter
             textureDirectory,
             textureDirectoryName,
             usedTextureNames,
+            exportedTextureByCandidate,
+            exportedTextureByBitmap,
             out resolvedTextureReference);
         if (!string.IsNullOrWhiteSpace(mesh.TexturePath) ||
             materialHints.Count > 0 ||
@@ -353,6 +373,11 @@ internal static class LithTechObjExporter
 
     private static IEnumerable<string> EnumerateSourceTextureCandidates(LithTechObjExportSource source)
     {
+        foreach (string candidate in ExpandSourceResourceTexturePathCandidates(source.ResourcePath))
+        {
+            yield return candidate;
+        }
+
         foreach (string candidate in ExpandTextureNameCandidates(Path.GetFileNameWithoutExtension(source.ResourcePath)))
         {
             yield return candidate;
@@ -369,6 +394,62 @@ internal static class LithTechObjExporter
         }
     }
 
+    private static IEnumerable<string> ExpandSourceResourceTexturePathCandidates(string resourcePath)
+    {
+        string normalized = NormalizeTextureKey(resourcePath);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            yield break;
+        }
+
+        string withoutExtension = RemovePathExtension(normalized);
+        if (string.IsNullOrWhiteSpace(withoutExtension))
+        {
+            yield break;
+        }
+
+        yield return withoutExtension;
+
+        const string modelsSegment = "/Models/";
+        int modelsIndex = withoutExtension.IndexOf(modelsSegment, StringComparison.OrdinalIgnoreCase);
+        if (modelsIndex >= 0)
+        {
+            string afterModels = withoutExtension[(modelsIndex + modelsSegment.Length)..];
+            if (!string.IsNullOrWhiteSpace(afterModels))
+            {
+                yield return "ModelTextures/" + afterModels;
+                yield return withoutExtension[..modelsIndex] + "/ModelTextures/" + afterModels;
+
+                string sourceRoot = withoutExtension[..modelsIndex].Trim('/');
+                if (string.Equals(GetLastPathSegment(sourceRoot), "RF016", StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return "rf017/ModelTextures/" + afterModels;
+                    int slashIndex = sourceRoot.LastIndexOf('/');
+                    if (slashIndex >= 0)
+                    {
+                        yield return sourceRoot[..slashIndex] + "/rf017/ModelTextures/" + afterModels;
+                    }
+                }
+            }
+        }
+
+        const string leadingModels = "Models/";
+        if (withoutExtension.StartsWith(leadingModels, StringComparison.OrdinalIgnoreCase))
+        {
+            string afterModels = withoutExtension[leadingModels.Length..];
+            if (!string.IsNullOrWhiteSpace(afterModels))
+            {
+                yield return "ModelTextures/" + afterModels;
+            }
+        }
+    }
+
+    private static string GetLastPathSegment(string path)
+    {
+        int slashIndex = path.LastIndexOf('/');
+        return slashIndex >= 0 ? path[(slashIndex + 1)..] : path;
+    }
+
     private static IEnumerable<string> ExpandTextureNameCandidates(string? value)
     {
         string normalized = NormalizeTextureKey(value);
@@ -377,6 +458,27 @@ internal static class LithTechObjExporter
             yield break;
         }
 
+        if (TextureNameCandidateCache.TryGetValue(normalized, out IReadOnlyList<string>? cached))
+        {
+            foreach (string candidate in cached)
+            {
+                yield return candidate;
+            }
+
+            yield break;
+        }
+
+        List<string> candidates = BuildTextureNameCandidates(normalized);
+        TextureNameCandidateCache[normalized] = candidates;
+        foreach (string candidate in candidates)
+        {
+            yield return candidate;
+        }
+    }
+
+    private static List<string> BuildTextureNameCandidates(string normalized)
+    {
+        var candidates = new List<string>();
         string fileName = Path.GetFileName(normalized);
         string stem = Path.GetFileNameWithoutExtension(fileName);
         if (string.IsNullOrWhiteSpace(stem))
@@ -384,34 +486,36 @@ internal static class LithTechObjExporter
             stem = normalized;
         }
 
-        yield return stem;
+        candidates.Add(stem);
 
         string numberedBase = LithTechModelPartGrouper.GetNumberedPartBase(stem);
         if (!string.Equals(numberedBase, stem, StringComparison.OrdinalIgnoreCase))
         {
-            yield return numberedBase;
+            candidates.Add(numberedBase);
         }
 
         foreach (string stripped in StripModelVariantSuffixes(stem))
         {
-            yield return stripped;
+            candidates.Add(stripped);
         }
 
         foreach (string stripped in StripViewModelPrefixes(stem))
         {
-            yield return stripped;
+            candidates.Add(stripped);
 
             string strippedNumberedBase = LithTechModelPartGrouper.GetNumberedPartBase(stripped);
             if (!string.Equals(strippedNumberedBase, stripped, StringComparison.OrdinalIgnoreCase))
             {
-                yield return strippedNumberedBase;
+                candidates.Add(strippedNumberedBase);
             }
 
             foreach (string variantStripped in StripModelVariantSuffixes(stripped))
             {
-                yield return variantStripped;
+                candidates.Add(variantStripped);
             }
         }
+
+        return candidates;
     }
 
     private static IEnumerable<string> StripModelVariantSuffixes(string stem)
@@ -490,6 +594,8 @@ internal static class LithTechObjExporter
         string textureDirectory,
         string textureDirectoryName,
         HashSet<string> usedTextureNames,
+        Dictionary<string, string?> exportedTextureByCandidate,
+        Dictionary<BitmapSource, string> exportedTextureByBitmap,
         out string? resolvedReference)
     {
         resolvedReference = null;
@@ -501,7 +607,9 @@ internal static class LithTechObjExporter
                 outputDirectory,
                 textureDirectory,
                 textureDirectoryName,
-                usedTextureNames);
+                usedTextureNames,
+                exportedTextureByCandidate,
+                exportedTextureByBitmap);
             if (!string.IsNullOrWhiteSpace(textureRelativePath))
             {
                 resolvedReference = textureCandidate;
@@ -518,7 +626,9 @@ internal static class LithTechObjExporter
         string outputDirectory,
         string textureDirectory,
         string textureDirectoryName,
-        HashSet<string> usedTextureNames)
+        HashSet<string> usedTextureNames,
+        Dictionary<string, string?> exportedTextureByCandidate,
+        Dictionary<BitmapSource, string> exportedTextureByBitmap)
     {
         if (string.IsNullOrWhiteSpace(texturePath) || textureResolver is null)
         {
@@ -527,14 +637,27 @@ internal static class LithTechObjExporter
 
         try
         {
+            string normalizedTexturePath = NormalizeTextureKey(texturePath);
+            if (exportedTextureByCandidate.TryGetValue(normalizedTexturePath, out string? cachedRelativePath))
+            {
+                return cachedRelativePath;
+            }
+
             ImageSource? image = textureResolver(texturePath);
             if (image is not BitmapSource bitmap)
             {
+                exportedTextureByCandidate[normalizedTexturePath] = null;
                 return null;
             }
 
+            if (exportedTextureByBitmap.TryGetValue(bitmap, out string? existingRelativePath))
+            {
+                exportedTextureByCandidate[normalizedTexturePath] = existingRelativePath;
+                return existingRelativePath;
+            }
+
             Directory.CreateDirectory(textureDirectory);
-            string textureBaseName = Path.GetFileNameWithoutExtension(NormalizeTextureKey(texturePath));
+            string textureBaseName = Path.GetFileNameWithoutExtension(normalizedTexturePath);
             if (string.IsNullOrWhiteSpace(textureBaseName))
             {
                 textureBaseName = "texture";
@@ -555,10 +678,14 @@ internal static class LithTechObjExporter
                 relativePath = Path.Combine(textureDirectoryName, textureFileName);
             }
 
-            return ToObjPath(relativePath);
+            string objRelativePath = ToObjPath(relativePath);
+            exportedTextureByCandidate[normalizedTexturePath] = objRelativePath;
+            exportedTextureByBitmap[bitmap] = objRelativePath;
+            return objRelativePath;
         }
         catch
         {
+            exportedTextureByCandidate[NormalizeTextureKey(texturePath)] = null;
             return null;
         }
     }
@@ -670,6 +797,12 @@ internal static class LithTechObjExporter
         return string.IsNullOrWhiteSpace(texturePath)
             ? string.Empty
             : texturePath.Replace('\\', '/').Trim().Trim('"');
+    }
+
+    private static string RemovePathExtension(string path)
+    {
+        string extension = Path.GetExtension(path);
+        return string.IsNullOrEmpty(extension) ? path : path[..^extension.Length];
     }
 
     private static string ToObjPath(string path)

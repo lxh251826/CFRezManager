@@ -107,14 +107,7 @@ internal static class LithTechTextureMappingScanner
         ExplorerItem? root,
         IReadOnlyList<LithTechObjExportSource> sources)
     {
-        string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(objPath)) ?? Environment.CurrentDirectory;
-        string baseName = Path.GetFileNameWithoutExtension(objPath);
-        if (string.IsNullOrWhiteSpace(baseName))
-        {
-            baseName = "model";
-        }
-
-        string reportPath = Path.Combine(outputDirectory, $"{baseName}_mapping_candidates.txt");
+        string reportPath = GetReportPath(objPath);
         List<string> modelNeedles = BuildModelNeedles(sources);
         List<string> textureReferences = sources
             .SelectMany(source => source.Document.Meshes)
@@ -396,6 +389,28 @@ internal static class LithTechTextureMappingScanner
         writer.WriteLine("- If texture guesses look correct but no mapping file hits appear, the binding may be packed in an unsupported binary table.");
 
         return reportPath;
+    }
+
+    public static string WriteSkippedReport(string objPath, string reason)
+    {
+        string reportPath = GetReportPath(objPath);
+        using var writer = new StreamWriter(reportPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.WriteLine("CF Rez Manager texture mapping candidate report");
+        writer.WriteLine();
+        writer.WriteLine(reason);
+        return reportPath;
+    }
+
+    private static string GetReportPath(string objPath)
+    {
+        string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(objPath)) ?? Environment.CurrentDirectory;
+        string baseName = Path.GetFileNameWithoutExtension(objPath);
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "model";
+        }
+
+        return Path.Combine(outputDirectory, $"{baseName}_mapping_candidates.txt");
     }
 
     private static List<LikelyMappingCandidate> SelectLikelyMappingFiles(
@@ -690,7 +705,7 @@ internal static class LithTechTextureMappingScanner
                 continue;
             }
 
-            string? searchableText = TryBuildSearchText(data);
+            string? searchableText = TryBuildSearchText(item, data);
             List<string> textureReferences = searchableText is null
                 ? []
                 : ExtractResourceReferences(searchableText, TextureReferenceExtensions)
@@ -812,7 +827,8 @@ internal static class LithTechTextureMappingScanner
         }
 
         string path = string.IsNullOrWhiteSpace(item.OutputRelativePath) ? item.Name : item.OutputRelativePath;
-        if (LooksLikeInstallerOrManifestPath(path))
+        if (LooksLikeInstallerOrManifestPath(path) ||
+            LithTechResourceHeuristics.IsLowValueMappingPath(path))
         {
             return false;
         }
@@ -823,9 +839,9 @@ internal static class LithTechTextureMappingScanner
             return false;
         }
 
-        return PreferredMappingExtensions.Contains(extension) ||
-               string.IsNullOrWhiteSpace(extension) ||
-               LooksLikeMappingPath(path);
+        return LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension) ||
+               LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension) ||
+               (string.IsNullOrWhiteSpace(extension) && LooksLikeMappingPath(path));
     }
 
     private static List<string> FindRawNeedleMatches(byte[] data, IReadOnlyList<string> needles, int maxMatches)
@@ -902,7 +918,10 @@ internal static class LithTechTextureMappingScanner
 
         if (PreferredMappingExtensions.Contains(extension))
         {
-            score += 40;
+            score += LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension) ||
+                     LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension)
+                ? 40
+                : 5;
         }
 
         if (LooksLikeMappingPath(path))
@@ -1030,7 +1049,10 @@ internal static class LithTechTextureMappingScanner
 
         if (PreferredMappingExtensions.Contains(extension))
         {
-            score += 25;
+            score += LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension) ||
+                     LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension)
+                ? 25
+                : 5;
         }
 
         if (LooksLikeMappingPath(path))
@@ -1198,14 +1220,21 @@ internal static class LithTechTextureMappingScanner
             return false;
         }
 
+        string path = string.IsNullOrWhiteSpace(item.OutputRelativePath) ? item.Name : item.OutputRelativePath;
+        if (LooksLikeInstallerOrManifestPath(path) ||
+            LithTechResourceHeuristics.IsLowValueMappingPath(path))
+        {
+            return false;
+        }
+
         long? byteCount = GetItemByteCount(item);
         if (byteCount is null or <= 0 or > MaxScanBytes)
         {
             return false;
         }
 
-        return PreferredMappingExtensions.Contains(extension) ||
-               string.Equals(extension, "lst", StringComparison.OrdinalIgnoreCase);
+        return LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension) ||
+               LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension);
     }
 
     private static IEnumerable<ExplorerItem> EnumerateFiles(ExplorerItem item)
@@ -1226,7 +1255,12 @@ internal static class LithTechTextureMappingScanner
 
     private static bool ShouldScanMappingCandidate(ExplorerItem item)
     {
-            string extension = item.FileExtension;
+        if (!item.IsFile)
+        {
+            return false;
+        }
+
+        string extension = item.FileExtension;
         if (TextureExtensions.Contains(extension) ||
             string.Equals(extension, "bank", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(extension, "dds", StringComparison.OrdinalIgnoreCase) ||
@@ -1240,12 +1274,15 @@ internal static class LithTechTextureMappingScanner
             return false;
         }
 
-        if (PreferredMappingExtensions.Contains(extension))
+        string path = string.IsNullOrWhiteSpace(item.OutputRelativePath) ? item.Name : item.OutputRelativePath;
+        if (LooksLikeInstallerOrManifestPath(path) ||
+            LithTechResourceHeuristics.IsLowValueMappingPath(path))
         {
-            return true;
+            return false;
         }
 
-        return false;
+        return LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension) ||
+               LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension);
     }
 
     private static bool IsShaderMaterialCandidate(GlobalMappingTableCandidate candidate)
@@ -1271,8 +1308,8 @@ internal static class LithTechTextureMappingScanner
 
     private static bool LooksLikeUiOnlyPath(string path)
     {
-        return UiPathMarkers.Any(marker => path.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
-               path.Replace('\\', '/').StartsWith("rez/UI/", StringComparison.OrdinalIgnoreCase);
+        return LithTechResourceHeuristics.IsUiPath(path) ||
+               UiPathMarkers.Any(marker => path.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<ExplorerItem> GetMappingCandidates(ExplorerItem root, IReadOnlyList<string> modelNeedles)
@@ -1303,13 +1340,31 @@ internal static class LithTechTextureMappingScanner
 
         string path = string.IsNullOrWhiteSpace(item.OutputRelativePath) ? item.Name : item.OutputRelativePath;
         string extension = item.FileExtension;
+        if (LooksLikeInstallerOrManifestPath(path) ||
+            LithTechResourceHeuristics.IsLowValueMappingPath(path))
+        {
+            return 0;
+        }
+
         bool pathMatchesModel = modelNeedles.Any(term => path.Contains(term, StringComparison.OrdinalIgnoreCase));
         if (string.Equals(extension, "dat", StringComparison.OrdinalIgnoreCase) && !pathMatchesModel)
         {
             return 0;
         }
 
+        bool likelyTextureConfig = LithTechResourceHeuristics.IsLikelyModelTextureConfigPath(path, extension);
+        bool likelyMappingTable = LithTechResourceHeuristics.IsLikelyModelMappingTablePath(path, extension);
         int score = PreferredMappingExtensions.Contains(extension) ? 10 : 0;
+        if (likelyTextureConfig)
+        {
+            score += 80;
+        }
+
+        if (likelyMappingTable)
+        {
+            score += 40;
+        }
+
         if (pathMatchesModel)
         {
             score += 100;
@@ -1336,6 +1391,13 @@ internal static class LithTechTextureMappingScanner
         }
 
         string extension = item.FileExtension;
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase) &&
+            CfgTextDecoder.TryDecode(data, item.Name, MaxScanBytes, out CfgTextDocument? cfgDocument) &&
+            cfgDocument is not null)
+        {
+            return cfgDocument.Text;
+        }
+
         if (ResourceTextDecoder.IsCandidate(item.Name, extension) &&
             ResourceTextDecoder.TryDecode(data, item.Name, extension, out ResourceTextDocument? resourceDocument, out _) &&
             resourceDocument is not null)
@@ -1363,6 +1425,11 @@ internal static class LithTechTextureMappingScanner
             return text;
         }
 
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
         return string.Join('\n', ExtractAsciiStrings(prepared, minLength: 4, maxCount: 512));
     }
 
@@ -1374,6 +1441,14 @@ internal static class LithTechTextureMappingScanner
             return null;
         }
 
+        string extension = item.FileExtension;
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase) &&
+            CfgTextDecoder.TryDecode(data, item.Name, MaxScanBytes, out CfgTextDocument? cfgDocument) &&
+            cfgDocument is not null)
+        {
+            return cfgDocument.Text;
+        }
+
         byte[] prepared = LzmaAloneDecoder.TryPrepareData(data, MaxScanBytes) ?? data;
         var parts = new List<string>();
         if (TextPreviewDecoder.TryDecode(prepared, preferKorean: false, out string text, out _))
@@ -1381,14 +1456,26 @@ internal static class LithTechTextureMappingScanner
             parts.Add(text);
         }
 
-        parts.AddRange(ExtractAsciiStrings(prepared, minLength: 4, maxCount: 2048));
+        if (!string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            parts.AddRange(ExtractAsciiStrings(prepared, minLength: 4, maxCount: 2048));
+        }
+
         return parts.Count == 0
             ? null
             : string.Join('\n', parts.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
-    private static string? TryBuildSearchText(byte[] data)
+    private static string? TryBuildSearchText(ExplorerItem item, byte[] data)
     {
+        string extension = item.FileExtension;
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase) &&
+            CfgTextDecoder.TryDecode(data, item.Name, MaxRawNeedleScanBytes, out CfgTextDocument? cfgDocument) &&
+            cfgDocument is not null)
+        {
+            return cfgDocument.Text;
+        }
+
         byte[] prepared = LzmaAloneDecoder.TryPrepareData(data, MaxRawNeedleScanBytes) ?? data;
         var parts = new List<string>();
         if (TextPreviewDecoder.TryDecode(prepared, preferKorean: false, out string text, out _))
@@ -1396,7 +1483,11 @@ internal static class LithTechTextureMappingScanner
             parts.Add(text);
         }
 
-        parts.AddRange(ExtractAsciiStrings(prepared, minLength: 4, maxCount: 4096));
+        if (!string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            parts.AddRange(ExtractAsciiStrings(prepared, minLength: 4, maxCount: 4096));
+        }
+
         return parts.Count == 0
             ? null
             : string.Join('\n', parts.Distinct(StringComparer.OrdinalIgnoreCase));

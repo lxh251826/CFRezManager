@@ -143,6 +143,325 @@
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
         </Style>
 
+        <Style TargetType="{x:Type ListBoxItem}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppItemHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppSelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ComboBoxItem}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppItemHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppSelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ComboBox}">
+            <Setter Property="Background" Value="{DynamicResource AppInputBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ComboBox}">
+                        <Grid>
+                            <ToggleButton x:Name="DropDownToggle"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"
+                                          ClickMode="Press"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                        <Border x:Name="Root"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="2"/>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="ContentSite"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"/>
+                            <Path x:Name="Arrow"
+                                  Width="8"
+                                  Height="5"
+                                  Margin="0,0,10,0"
+                                  HorizontalAlignment="Right"
+                                  VerticalAlignment="Center"
+                                  Stretch="Uniform"
+                                  Fill="{DynamicResource AppSubtleTextBrush}"
+                                  Data="M 0 0 L 8 0 L 4 5 Z"/>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   PopupAnimation="Fade">
+                                <Border x:Name="DropDownBorder"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="{DynamicResource AppSurfaceBrush}"
+                                        BorderBrush="{DynamicResource AppBorderBrush}"
+                                        BorderThickness="1"
+                                        SnapsToDevicePixels="True">
+                                    <ScrollViewer Background="{DynamicResource AppSurfaceBrush}"
+                                                  CanContentScroll="True">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="DropDownToggle" Property="Background" Value="{DynamicResource AppButtonHoverBrush}"/>
+                                <Setter TargetName="DropDownToggle" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="DropDownToggle" Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type CheckBox}">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type CheckBox}">
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <Border x:Name="Box"
+                                    Width="16"
+                                    Height="16"
+                                    Background="{DynamicResource AppInputBrush}"
+                                    BorderBrush="{DynamicResource AppButtonBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="2"
+                                    Margin="0,0,7,0">
+                                <Path x:Name="CheckMark"
+                                      Data="M 3 8 L 6.5 11.5 L 13 4"
+                                      Stroke="{DynamicResource AppAccentBrush}"
+                                      StrokeThickness="2"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type RadioButton}">
+            <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type RadioButton}">
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <Border x:Name="Ring"
+                                    Width="16"
+                                    Height="16"
+                                    Background="{DynamicResource AppInputBrush}"
+                                    BorderBrush="{DynamicResource AppButtonBorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Margin="0,0,7,0">
+                                <Ellipse x:Name="Dot"
+                                         Width="8"
+                                         Height="8"
+                                         Fill="{DynamicResource AppAccentBrush}"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="BorderBrush" Value="{DynamicResource AppSelectionBorderBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type Slider}">
+            <Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppButtonBorderBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Slider}">
+                        <Grid Height="22"
+                              VerticalAlignment="Center">
+                            <Track x:Name="PART_Track"
+                                   VerticalAlignment="Center">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}"
+                                                  Focusable="False"
+                                                  IsTabStop="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="{x:Type RepeatButton}">
+                                                <Border Height="4"
+                                                        Background="{DynamicResource AppAccentBrush}"
+                                                        CornerRadius="2"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}"
+                                                  Focusable="False"
+                                                  IsTabStop="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="{x:Type RepeatButton}">
+                                                <Border Height="4"
+                                                        Background="{DynamicResource AppButtonBorderBrush}"
+                                                        CornerRadius="2"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="14"
+                                           Height="14">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Border x:Name="Root"
+                                                        Background="{DynamicResource AppAccentBrush}"
+                                                        BorderBrush="{DynamicResource AppSurfaceBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="7"/>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource AppTextBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type ProgressBar}">
+            <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppAccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ProgressBar}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                ClipToBounds="True"
+                                SnapsToDevicePixels="True">
+                            <Grid x:Name="PART_Track">
+                                <Border x:Name="PART_Indicator"
+                                        Background="{TemplateBinding Foreground}"
+                                        HorizontalAlignment="Left"
+                                        CornerRadius="3"/>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="AppScrollBarLineButtonStyle" TargetType="{x:Type RepeatButton}">
             <Setter Property="Focusable" Value="False"/>
             <Setter Property="Background" Value="{DynamicResource AppSurfaceAltBrush}"/>
@@ -383,13 +702,84 @@
         </Style>
 
         <Style TargetType="{x:Type ContextMenu}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Background" Value="{DynamicResource AppSurfaceBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource AppBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="3"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="TextElement.Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ContextMenu}">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                TextElement.Foreground="{TemplateBinding Foreground}"
+                                SnapsToDevicePixels="True">
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"
+                                            KeyboardNavigation.TabNavigation="Cycle"
+                                            SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="{x:Type MenuItem}">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
             <Setter Property="Foreground" Value="{DynamicResource AppTextBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="MinWidth" Value="128"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type MenuItem}">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                TextElement.Foreground="{TemplateBinding Foreground}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              RecognizesAccessKey="True"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppItemHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AppSelectionBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="{x:Type Separator}">
+            <Setter Property="Margin" Value="4,3"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Separator}">
+                        <Border Height="1"
+                                Background="{DynamicResource AppBorderBrush}"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

@@ -44,8 +44,8 @@ internal static class ThemeManager
             SetBrush(resources, "AppSelectionBrush", "#294C63");
             SetBrush(resources, "AppSelectionHoverBrush", "#335E78");
             SetBrush(resources, "AppSelectionBorderBrush", "#73B6D6");
-            SetBrush(resources, "AppFilePageBrush", "#F8FAFC");
-            SetBrush(resources, "AppFileFoldBrush", "#CBD5E1");
+            SetBrush(resources, "AppFilePageBrush", "#252B32");
+            SetBrush(resources, "AppFileFoldBrush", "#343D47");
             SetBrush(resources, "AppThumbnailBackgroundBrush", "#15191D");
             SetBrush(resources, "AppBadgeBrush", "#D9111827");
             SetBrush(resources, "AppSelectionOverlayBrush", "#334F83D1");

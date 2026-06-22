@@ -306,7 +306,8 @@ public partial class MainWindow : Window
             ["NoModelsToExport"] = ("\u6ca1\u6709\u53ef\u5bfc\u51fa\u7684\u6a21\u578b", "No exportable models"),
             ["DecodingModelObjExport"] = ("\u6b63\u5728\u89e3\u7801\u6a21\u578b {0:N0}/{1:N0}: {2}", "Decoding model {0:N0}/{1:N0}: {2}"),
             ["WritingModelObjExport"] = ("\u6b63\u5728\u5199\u5165 OBJ...", "Writing OBJ..."),
-            ["ExportedModelObjResult"] = ("\u5df2\u5bfc\u51fa OBJ: {0:N0} \u4e2a\u6a21\u578b, {1:N0} \u4e2a\u7f51\u683c, {2:N0} \u4e2a\u8d34\u56fe, \u7f3a\u5931\u8d34\u56fe {3:N0} \u4e2a, \u8df3\u8fc7\u6a21\u578b {4:N0} \u4e2a: {5}; \u7ebf\u7d22\u62a5\u544a: {6}", "Exported OBJ: {0:N0} models, {1:N0} meshes, {2:N0} textures, {3:N0} missing textures, skipped {4:N0} models: {5}; mapping report: {6}"),
+            ["ExportedModelObjResult"] = ("\u5df2\u5bfc\u51fa OBJ: {0:N0} \u4e2a\u6a21\u578b, {1:N0} \u4e2a\u7f51\u683c, \u5df2\u5bfc\u51fa\u8d34\u56fe {2:N0} \u4e2a, \u7f3a\u5931 {3:N0} \u4e2a, \u8df3\u8fc7 {4:N0} \u4e2a; OBJ: {5}; MTL: {6}; \u8d34\u56fe\u76ee\u5f55: {7}; \u8bca\u65ad\u62a5\u544a: {8}", "Exported OBJ: {0:N0} models, {1:N0} meshes, {2:N0} textures exported, {3:N0} missing, skipped {4:N0}; OBJ: {5}; MTL: {6}; texture folder: {7}; diagnostics: {8}"),
+            ["NoDiagnosticsReport"] = ("\u65e0", "none"),
             ["ExportObjFailed"] = ("OBJ \u5bfc\u51fa\u5931\u8d25", "OBJ export failed"),
             ["OpenAudioPreview"] = ("播放音频...", "Play Audio..."),
             ["OpenImagePreview"] = ("查看图片...", "View Image..."),
@@ -954,7 +955,9 @@ public partial class MainWindow : Window
                 result.ExportResult.MissingTextureCount,
                 result.SkippedCount,
                 result.ExportResult.ObjPath,
-                result.MappingReportPath);
+                result.ExportResult.MtlPath,
+                result.ExportResult.TextureDirectoryPath,
+                GetObjExportDiagnosticPath(result.ExportResult, result.MappingReportPath));
         }
         catch (Exception ex)
         {
@@ -1003,8 +1006,22 @@ public partial class MainWindow : Window
 
         Dispatcher.Invoke(() => SetStatus("WritingModelObjExport"));
         LithTechObjExportResult result = LithTechObjExporter.Export(outputPath, sources);
-        string mappingReportPath = LithTechTextureMappingScanner.WriteReport(result.ObjPath, exportRoot, sources);
+        string mappingReportPath = result.MissingTextureCount == 0
+            ? string.Empty
+            : LithTechTextureMappingScanner.WriteReport(result.ObjPath, exportRoot, sources);
         return new ModelObjExportBatchResult(result, skippedCount, mappingReportPath);
+    }
+
+    private string GetObjExportDiagnosticPath(LithTechObjExportResult result, string mappingReportPath)
+    {
+        if (!string.IsNullOrWhiteSpace(mappingReportPath))
+        {
+            return mappingReportPath;
+        }
+
+        return string.IsNullOrWhiteSpace(result.TextureReportPath)
+            ? T("NoDiagnosticsReport")
+            : result.TextureReportPath;
     }
 
     private static Func<string, ImageSource?>? CreateObjTextureResolver(
@@ -1022,7 +1039,9 @@ public partial class MainWindow : Window
             return primaryResolver;
         }
 
-        return texturePath => primaryResolver(texturePath) ?? globalTextureResolver(texturePath);
+        return item.Kind == ExplorerItemKind.LocalFile
+            ? texturePath => globalTextureResolver(texturePath) ?? primaryResolver(texturePath)
+            : texturePath => primaryResolver(texturePath) ?? globalTextureResolver(texturePath);
     }
 
     private static bool TryLoadModelDocument(ExplorerItem item, out LithTechModelDocument? document, out string? errorMessage)

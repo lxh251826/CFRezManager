@@ -100,7 +100,7 @@ CFRezManager/
 - 音频：WAV、OGG、MP3 和 FMOD `.bank`，支持波形缩略图、曲目列表、播放控制、进度拖动和动态频谱；OGG/MP3 预览会解码为 PCM 后生成频谱，让普通音频和 FMOD BANK 的波形表现更一致。
 - 模型和地图：LTC、LTB、LTA、DAT、SPR，可生成缩略图并打开独立预览窗口；SPR 可自动播放动画帧。
 - 文本和配置：CFT、FCF、FXF、FXO、NAV、APF、REF、TXT、部分 WAVE 资源、CrossFire UI 脚本 `.bin`、CFG。
-- CFG 批处理：可扫描贴图引用，分类失败解码结果，并为二进制 RGB 条带型 CFG 生成预览。
+- CFG 批处理：可扫描贴图引用，支持普通/LZMA/ENC/REZ phase 文本 CFG 解码，分类失败解码结果，并为二进制 RGB 条带型 CFG 生成预览。
 
 生成过的缩略图会缓存在程序目录下的 `ThumbnailCache` 文件夹中，避免持续占用当前 Windows 用户目录所在磁盘。程序启动时会尝试删除旧版用户目录缩略图缓存；资源变化后可在 `设置` 中用 `清缩略图` 清理当前缓存。
 
@@ -153,9 +153,18 @@ dotnet run --project .\CFRezManager.csproj -- --scan-cfg --root "C:\Extracted\cf
 dotnet run --project .\CFRezManager.csproj -- --decode-cfg --root "C:\Extracted\cfg"
 ```
 
-- `--export-obj`：导出 LithTech 模型为 OBJ/MTL，并生成贴图和映射报告。
+- `--export-obj`：导出 LithTech 模型为 OBJ/MTL，同步写出 `_textures` 贴图目录并在 MTL 中引用贴图；仅在缺失贴图时生成诊断报告。
 - `--scan-cfg`：扫描 CFG，提取贴图引用，输出 TXT/CSV 报告。
 - `--decode-cfg`：重试失败 CFG，导出可还原文本或二进制预览图，并分类高熵配置。
+
+## v1.2.2 更新
+
+- 修复更多暗色主题残留白底控件，包括右键菜单、选择项、输入框、下拉项和进度/滑块等常见控件。
+- OBJ 导出会生成可直接使用的模型包：`.obj` 引用 `.mtl`，`.mtl` 通过 `map_Kd` 指向同目录 `_textures` 下导出的 PNG 贴图。
+- 优化 OBJ 贴图解析：建立全局贴图索引、模型贴图配置索引和模型/贴图路径启发式，避免被 UI 脚本和无关贴图目录拖慢。
+- 新增 CFG 文本解码链路，支持普通文本、LZMA、ENC Base64 和 REZ phase 尝试；二进制 RGB 条带型 CFG 会被识别并跳过耗时穷举。
+- 全局贴图索引和 CFG 配置索引按当前资源树缓存，重复导出时不再反复重建大字典。
+- 在 `F:\CrossFile\CrossFileREZBack\7.2.1` 测试中，`ak47` OBJ 导出约 2.8 秒，2 张贴图全部导出，缺失贴图为 0。
 
 ## 制作不易，鼓励一下
 

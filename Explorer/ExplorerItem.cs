@@ -846,6 +846,16 @@ public sealed class ExplorerItem : INotifyPropertyChanged
 
     private ImageSource? LoadPlainTextThumbnail(byte[] data, string extension)
     {
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase) &&
+            CfgTextDecoder.TryDecode(data, Name, MaxThumbnailBytes, out CfgTextDocument? cfgDocument) &&
+            cfgDocument is not null)
+        {
+            SetImageStorageKind(cfgDocument.Description.StartsWith("lzma", StringComparison.OrdinalIgnoreCase)
+                ? ImageStorageKind.ConfigTextLzma
+                : ImageStorageKind.ConfigText);
+            return TextThumbnailRenderer.TryRender(Name, cfgDocument.Text, "CFG");
+        }
+
         byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data, MaxThumbnailBytes);
         bool compressed = prepared is not null && !ReferenceEquals(prepared, data);
         byte[] textBytes = prepared ?? data;
@@ -1244,6 +1254,18 @@ public sealed class ExplorerItem : INotifyPropertyChanged
                     TextPreviewStorageKind.ResourceDecoded,
                     resourceDocument.SourceByteCount,
                     resourceDocument.DecodedByteCount);
+            }
+
+            if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase) &&
+                CfgTextDecoder.TryDecode(data, Name, MaxTextPreviewBytes, out CfgTextDocument? cfgDocument) &&
+                cfgDocument is not null)
+            {
+                return new TextPreviewDocument(
+                    cfgDocument.Text,
+                    cfgDocument.Description,
+                    TextPreviewStorageKind.Plain,
+                    cfgDocument.SourceByteCount,
+                    cfgDocument.DecodedByteCount);
             }
 
             byte[]? prepared = LzmaAloneDecoder.TryPrepareData(data, MaxTextPreviewBytes);

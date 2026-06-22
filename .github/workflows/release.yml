@@ -49,18 +49,20 @@ jobs:
           body: |
             CF Rez Manager ${{ github.ref_name }}
 
-            ## v1.2.1 更新 / Highlights
+            ## v1.2.2 更新 / Highlights
 
-            - 修复主窗口、图片预览和文本预览中暗色主题下仍显示系统白色滚动条的问题。
-            - 新增设置窗口，可切换语言、亮色/暗色主题，并清理缩略图缓存。
-            - 缩略图缓存改为存放在程序目录，启动时会清理旧版用户目录缓存。
-            - 修复暗色主题下启动、文件夹加载、预览窗口、搜索框焦点和搜索提示的白底闪烁。
-            - 改进 OGG/MP3 音频预览，解码为 PCM 后再生成频谱，让波形显示更顺滑。
-            - Fixed system-white scrollbars still appearing in the main window, image preview, and text preview while using the dark theme.
-            - Added a Settings window for language, light/dark theme switching, and thumbnail cache cleanup.
-            - Moved thumbnail cache storage to the program directory and removed the old user-profile cache on startup.
-            - Fixed dark-theme white flashes during startup, folder loading, preview windows, search focus, and search tooltips.
-            - Improved OGG/MP3 audio preview spectrum rendering by decoding to PCM before waveform analysis.
+            - 修复更多暗色主题残留白底控件，包括右键菜单、选择项、输入框、下拉项和进度/滑块。
+            - OBJ 导出现在会生成可直接导入的模型包：`.obj` 引用 `.mtl`，`.mtl` 通过 `map_Kd` 指向 `_textures` 下导出的 PNG 贴图。
+            - 优化 OBJ 贴图解析：建立全局贴图索引、模型贴图 CFG 索引和路径启发式，避免 UI 脚本与无关贴图目录拖慢导出。
+            - 新增 CFG 文本解码链路，支持普通文本、LZMA、ENC Base64 和 REZ phase 尝试，并提前识别二进制 RGB 条带型 CFG。
+            - 全局贴图索引和 CFG 配置索引按当前资源树缓存，重复导出时不再反复重建大字典。
+            - 在 `F:\CrossFile\CrossFileREZBack\7.2.1` 测试中，`ak47` OBJ 导出约 2.8 秒，2 张贴图全部导出，缺失贴图为 0。
+            - Fixed additional dark-theme white surfaces, including context menus, selection items, inputs, combo items, progress bars, and sliders.
+            - OBJ export now creates a ready-to-import package: `.obj` references `.mtl`, and `.mtl` uses `map_Kd` paths into the exported `_textures` PNG folder.
+            - Optimized OBJ texture resolution with global texture indexes, model-texture CFG indexes, and path heuristics so unrelated UI/config resources no longer dominate lookup work.
+            - Added a CFG text decode pipeline for plain text, LZMA, ENC Base64, and REZ phase attempts, with early detection for binary RGB-strip CFG files.
+            - Cached global texture indexes and CFG config indexes per loaded resource tree so repeated exports avoid rebuilding large dictionaries.
+            - On the `F:\CrossFile\CrossFileREZBack\7.2.1` test tree, `ak47` OBJ export completes in about 2.8 seconds with 2 textures exported and 0 missing textures.
 
             ## 中文说明
 
@@ -76,7 +78,7 @@ jobs:
             - 预览 DDS DXT 块压缩纹理和常见未压缩 DDS 纹理。
             - 解析 LithTech SPR 动态精灵，并从 REZ 包或本地解包目录加载 DTX 帧自动播放动画。
             - 预览更多 LTB 二进制模型和 LTA world/map 文本资源。
-            - 导出 LithTech 模型部件为 OBJ/MTL，并生成面向 Blender 流程的 CFG 贴图映射报告。
+            - 导出 LithTech 模型部件为 OBJ/MTL，同步导出贴图目录并在 MTL 中引用贴图。
             - 预览和导出 FMOD `.bank`，支持内嵌 FSB5 音频播放、缩略图、曲目清单和大型 BANK 递进加载。
             - 解码 CrossFire UI 脚本 BIN 配置表，并支持 BIN 贴图候选参与模型贴图解析。
             - 缓存已生成缩略图，重复浏览未变化资源时可以跳过重复解码和渲染。
@@ -158,7 +160,7 @@ jobs:
             - Preview DDS DXT block-compressed textures and common uncompressed DDS textures.
             - Parse LithTech SPR sprites and preview animations by loading referenced DTX frames from REZ archives or local extracted folders.
             - Preview more LTB binary models and LTA world/map text files.
-            - Export LithTech model parts to OBJ/MTL with CFG texture mapping reports for Blender workflows.
+            - Export LithTech model parts to OBJ/MTL with a sibling texture folder referenced by the MTL.
             - Preview and export FMOD `.bank` files with embedded FSB5 audio playback, thumbnails, a track list, and progressive loading for large banks.
             - Decode CrossFire UI script BIN configuration tables and use BIN files as model texture candidates.
             - Cache generated thumbnails so unchanged resources can skip repeat decoding and rendering.

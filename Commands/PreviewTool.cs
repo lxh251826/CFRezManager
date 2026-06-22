@@ -469,6 +469,19 @@ internal static class PreviewTool
             return true;
         }
 
+        if (string.Equals(extension, "cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!CfgTextDecoder.TryDecode(data, fileName, data.Length, out CfgTextDocument? cfgDocument) ||
+                cfgDocument is null)
+            {
+                return false;
+            }
+
+            string info = $"{cfgDocument.Description}, {cfgDocument.SourceByteCount:N0} bytes -> {cfgDocument.DecodedByteCount:N0} bytes";
+            window = new TextPreviewWindow(fileName, cfgDocument.Text, info);
+            return true;
+        }
+
         if (!TextPreviewDecoder.IsPlainTextExtension(extension) ||
             !TextPreviewDecoder.TryDecode(data, preferKorean: false, out string text, out string encoding))
         {
